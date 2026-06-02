@@ -1,0 +1,3854 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0d1117">
+<link rel="manifest" href="/manifest.json">
+<title>趋势选股</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+<script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+<style>
+  :root {
+    --bg:       #0d1117;
+    --surface:  #161b22;
+    --border:   #30363d;
+    --text:     #c9d1d9;
+    --muted:    #8b949e;
+    --accent:   #58a6ff;
+    --green:    #3fb950;
+    --red:      #f85149;
+  }
+  * { box-sizing: border-box; }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, 'Segoe UI', sans-serif; margin: 0; }
+
+  /* header */
+  .site-header {
+    background: linear-gradient(135deg, #0d1117 0%, #1c2128 100%);
+    border-bottom: 1px solid var(--border);
+    padding: 22px 0 18px;
+    text-align: center;
+  }
+  .site-header h1 { color: var(--accent); font-size: 1.7rem; margin-bottom: 4px; }
+  .site-header p  { color: var(--muted); font-size: .87rem; margin: 0; }
+
+  /* stats strip */
+  .stats-strip {
+    display: flex; gap: 12px; flex-wrap: wrap;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .stat-pill {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 18px; min-width: 140px;
+  }
+  .stat-pill .val { font-size: 1.4rem; font-weight: 700; color: var(--accent); }
+  .stat-pill .lbl { font-size: .75rem; color: var(--muted); margin-top: 2px; }
+
+  /* controls */
+  .controls {
+    display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+    padding: 14px 20px;
+  }
+  .controls input, .controls select {
+    background: var(--surface); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: 7px 12px; font-size: .88rem;
+  }
+  .controls input:focus, .controls select:focus {
+    outline: none; border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(88,166,255,.15);
+  }
+  .controls input { flex: 1 1 200px; }
+  .btn-refresh {
+    background: transparent; color: var(--accent);
+    border: 1px solid var(--accent); border-radius: 6px;
+    padding: 7px 16px; cursor: pointer; font-size: .88rem;
+    transition: background .15s;
+  }
+  .btn-refresh:hover { background: rgba(88,166,255,.12); }
+  .count-badge { color: var(--muted); font-size: .82rem; white-space: nowrap; }
+
+  /* table */
+  .tbl-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  thead th {
+    background: var(--surface); color: var(--muted);
+    font-size: .78rem; font-weight: 600; letter-spacing: .04em;
+    padding: 10px 14px; text-align: left;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  tbody tr {
+    border-bottom: 1px solid rgba(48,54,61,.6);
+    cursor: pointer; transition: background .12s;
+  }
+  tbody tr:hover { background: #1c2128; }
+  td { padding: 10px 14px; font-size: .88rem; }
+  .code { color: #e3b341; font-family: monospace; font-size: .85rem; }
+  .mktcap { background: rgba(88,166,255,.15); color: var(--accent); border-radius: 4px; padding: 2px 8px; font-size: .82rem; }
+  .pos { color: var(--green); }
+  .neg { color: var(--red); }
+  .rank { color: var(--muted); font-size: .8rem; }
+  .btn-analyze {
+    background: transparent; color: var(--accent);
+    border: 1px solid rgba(88,166,255,.4); border-radius: 4px;
+    padding: 3px 10px; font-size: .8rem; cursor: pointer;
+    transition: background .12s;
+  }
+  .btn-analyze:hover { background: rgba(88,166,255,.15); }
+
+  /* spinner */
+  .spin { display: inline-block; width: 32px; height: 32px; border: 3px solid rgba(88,166,255,.2); border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-row td { text-align: center; padding: 60px 0; }
+
+  /* modal overlay */
+  .modal-overlay {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,.75); z-index: 1200;
+    align-items: center; justify-content: center;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal-box {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; width: 95vw; max-width: 1200px;
+    height: 92vh; max-height: 92vh; overflow: hidden;
+    display: flex; flex-direction: column;
+  }
+  .modal-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 20px; border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .modal-header h2 { font-size: 1rem; margin: 0; color: var(--text); }
+  .modal-close {
+    background: none; border: none; color: var(--muted);
+    font-size: 1.3rem; cursor: pointer; line-height: 1;
+    padding: 4px 8px; border-radius: 4px;
+  }
+  .modal-close:hover { background: rgba(255,255,255,.08); color: var(--text); }
+  .modal-body {
+    display: flex; gap: 0; min-height: 0; flex: 1; overflow: hidden;
+  }
+  .chart-area { flex: 1; min-width: 0; min-height: 0; padding: 12px; overflow-y: auto; }
+  .stats-panel {
+    width: 320px; flex-shrink: 0; min-height: 0;
+    border-left: 1px solid var(--border);
+    padding: 18px 16px; overflow-y: auto;
+  }
+  .stat-card {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 8px; padding: 12px 14px; margin-bottom: 12px;
+    text-align: center;
+  }
+  .stat-card .sc-val { font-size: 1.5rem; font-weight: 700; }
+  .stat-card .sc-lbl { font-size: .73rem; color: var(--muted); margin-top: 2px; }
+  .note { font-size: .73rem; color: var(--muted); line-height: 1.55; }
+  .note strong { color: var(--text); }
+
+  /* ── modal side-tab sidebar ── */
+  .modal-tab-sidebar {
+    width: 64px; flex-shrink: 0; border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; padding: 12px 6px; gap: 6px;
+  }
+  .modal-side-tab {
+    background: none; border: 1px solid transparent; color: var(--muted);
+    border-radius: 6px; padding: 8px 2px; cursor: pointer;
+    font-size: .7rem; line-height: 1.5; text-align: center; transition: all .15s;
+  }
+  .modal-side-tab:hover { background: rgba(255,255,255,.06); color: var(--text); }
+  .modal-side-tab.active {
+    background: rgba(88,166,255,.15); color: #58a6ff;
+    border-color: rgba(88,166,255,.4); font-weight: 600;
+  }
+  .modal-tab-pane { display: none; flex: 1; min-width: 0; min-height: 0; }
+  .modal-tab-pane.active { display: flex; }
+  /* ── short-term 2×2 grid ── */
+  .short-grid {
+    display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr;
+    gap: 1px; background: var(--border); flex: 1; min-height: 0; overflow: hidden;
+  }
+  .short-cell {
+    background: var(--surface); min-height: 0; overflow: hidden;
+    display: flex; flex-direction: column; position: relative;
+  }
+  .short-cell-label {
+    font-size: .68rem; color: var(--muted); padding: 6px 10px 0;
+    flex-shrink: 0; font-weight: 500;
+  }
+  .short-cell-chart { flex: 1; min-height: 0; }
+
+  @media(max-width: 700px) {
+    .modal-body { flex-direction: column; }
+    .stats-panel { width: 100%; border-left: none; border-top: 1px solid var(--border); }
+  }
+
+  /* ── screener button ── */
+  .btn-screen {
+    background: linear-gradient(135deg, #1f6feb, #388bfd);
+    color: #fff; border: none; border-radius: 6px;
+    padding: 7px 16px; cursor: pointer; font-size: .88rem;
+    font-weight: 600; transition: opacity .15s;
+  }
+  .btn-screen:hover { opacity: .85; }
+
+  /* ── screener overlay ── */
+  .screen-overlay {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,.8); z-index: 1100;
+    align-items: flex-start; justify-content: center;
+    padding: 24px 16px; overflow-y: auto;
+  }
+  .screen-overlay.open { display: flex; }
+  .screen-box {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; width: 100%; max-width: 1280px;
+    display: flex; flex-direction: column;
+  }
+  .screen-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 20px; border-bottom: 1px solid var(--border); flex-shrink: 0;
+  }
+  .screen-header h2 { font-size: 1rem; margin: 0; }
+
+  /* filter bar */
+  .filter-bar {
+    display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end;
+    padding: 16px 20px; border-bottom: 1px solid var(--border);
+    background: #0d1117;
+  }
+  .filter-group { display: flex; flex-direction: column; gap: 4px; }
+  .filter-group label { font-size: .72rem; color: var(--muted); }
+  .filter-group input {
+    background: var(--surface); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: 6px 10px; font-size: .85rem; width: 110px;
+  }
+  .filter-group input:focus { outline: none; border-color: var(--accent); }
+  .filter-group select {
+    background: var(--surface); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: 6px 10px; font-size: .85rem;
+  }
+  .btn-scan {
+    background: var(--green); color: #000; border: none;
+    border-radius: 6px; padding: 8px 18px; font-size: .88rem;
+    font-weight: 700; cursor: pointer; transition: opacity .15s;
+    align-self: flex-end;
+  }
+  .btn-scan:hover { opacity: .85; }
+  .btn-scan:disabled { opacity: .5; cursor: default; }
+  .btn-filter {
+    background: var(--accent); color: #000; border: none;
+    border-radius: 6px; padding: 8px 14px; font-size: .88rem;
+    font-weight: 600; cursor: pointer; align-self: flex-end;
+  }
+  .btn-clear-filter {
+    background: transparent; color: var(--muted);
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: 8px 12px; font-size: .85rem; cursor: pointer;
+    align-self: flex-end;
+  }
+  .btn-portfolio {
+    background: linear-gradient(135deg, #2ea043, #3fb950);
+    color: #000; border: none; border-radius: 6px;
+    padding: 6px 14px; font-size: .85rem; font-weight: 700;
+    cursor: pointer; transition: opacity .15s; white-space: nowrap;
+  }
+  .btn-portfolio:hover { opacity: .85; }
+  .btn-portfolio:disabled { opacity: .35; cursor: default; }
+
+  /* progress */
+  .scan-progress {
+    padding: 12px 20px; border-bottom: 1px solid var(--border);
+    background: #0d1117;
+  }
+  .progress-track {
+    height: 6px; background: var(--border); border-radius: 3px; overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%; background: linear-gradient(90deg, #1f6feb, #3fb950);
+    border-radius: 3px; transition: width .3s;
+  }
+  .progress-text { font-size: .8rem; color: var(--muted); margin-top: 6px; }
+
+  /* screener results table */
+  .screen-results { overflow: auto; flex: 1; }
+  .screen-tbl { width: 100%; border-collapse: collapse; }
+  .screen-tbl thead th {
+    background: var(--surface); color: var(--muted);
+    font-size: .76rem; font-weight: 600; padding: 10px 12px;
+    border-bottom: 1px solid var(--border); white-space: nowrap;
+    cursor: pointer; user-select: none; position: sticky; top: 0;
+  }
+  .screen-tbl thead th:hover { color: var(--text); }
+  .screen-tbl thead th .sort-arrow { margin-left: 4px; opacity: .5; }
+  .screen-tbl thead th.active-sort .sort-arrow { opacity: 1; color: var(--accent); }
+  .screen-tbl tbody tr { border-bottom: 1px solid rgba(48,54,61,.5); cursor: pointer; transition: background .1s; }
+  .screen-tbl tbody tr:hover { background: #1c2128; }
+  .screen-tbl td { padding: 9px 12px; font-size: .85rem; }
+  .bar-cell { position: relative; min-width: 90px; }
+  .bar-bg { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 2px; opacity: .15; }
+  .bar-val { position: relative; z-index: 1; }
+  .found-badge { color: var(--green); font-size: .82rem; font-weight: 600; }
+
+  /* ── trend overlay (reuses screen-overlay / screen-box styles) ── */
+  .sparkline { display: block; }
+  .trend-score { font-variant-numeric: tabular-nums; }
+
+  /* ── year toggle chips ── */
+  .yr-chips { display: flex; gap: 5px; padding: 0 0 8px; align-items: center; }
+  .yr-chip {
+    background: transparent; color: var(--muted);
+    border: 1px solid var(--border); border-radius: 4px;
+    padding: 3px 10px; font-size: .78rem; cursor: pointer;
+    transition: background .12s, color .12s, border-color .12s;
+    user-select: none;
+  }
+  .yr-chip.active {
+    background: rgba(88,166,255,.12); color: var(--accent);
+    border-color: rgba(88,166,255,.45);
+  }
+  .yr-chip:hover:not(.active) { background: rgba(255,255,255,.05); }
+
+  /* Mobile trend cards — hidden on desktop, shown via media query below */
+  .trend-mobile-cards { display: none; }
+  .tm-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 10px 12px; margin-bottom: 7px;
+    cursor: pointer; -webkit-tap-highlight-color: transparent;
+  }
+  .tm-card:active { background: #1c2230; }
+  .tm-top { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 7px; }
+  .tm-left { display: flex; flex-direction: column; gap: 1px; }
+  .tm-rank { font-size: 10px; color: var(--muted); }
+  .tm-name { font-size: 15px; font-weight: 700; }
+  .tm-code { font-size: 11px; color: var(--muted); }
+  .tm-right { text-align: right; }
+  .tm-chg { font-size: 15px; font-weight: 700; }
+  .tm-price { font-size: 11px; color: var(--muted); margin-top: 1px; }
+  .tm-metrics { display: grid; grid-template-columns: repeat(4,1fr); gap: 3px 0; }
+  .tm-m { display: flex; flex-direction: column; align-items: center; }
+  .tm-mv { font-size: 12px; font-weight: 600; }
+  .tm-ml { font-size: 10px; color: var(--muted); }
+  .tm-row2 { display: grid; grid-template-columns: repeat(4,1fr); gap: 3px 0; margin-top: 5px; border-top: 1px solid var(--border); padding-top: 5px; }
+  .tm-badges { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+  .tm-badge { font-size: 10px; padding: 1px 5px; border-radius: 3px; }
+
+  /* ══════════════════════════════════════════════════════════
+     Mobile responsive styles  (≤ 767px)
+  ══════════════════════════════════════════════════════════ */
+  @media (max-width: 767px) {
+    /* Full-screen overlays */
+    .screen-box {
+      width: 100% !important; max-width: 100% !important;
+      height: 100% !important; max-height: 100% !important;
+      border-radius: 0 !important;
+    }
+    .modal-box {
+      width: 100% !important; max-width: 100% !important;
+      height: 100% !important; max-height: 100% !important;
+      border-radius: 0 !important;
+    }
+    /* Hide desktop table, show mobile cards */
+    .screen-results { display: none !important; }
+    .trend-mobile-cards { display: flex; flex-direction: column; flex: 1; overflow-y: auto; padding: 6px 8px; }
+    /* Scrollable filter bar */
+    .filter-bar { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; padding: 6px 8px; }
+    .filter-bar::-webkit-scrollbar { display: none; }
+    .filter-group { flex-shrink: 0; min-width: unset; }
+    .filter-group label { white-space: nowrap; font-size: .68rem; }
+    .filter-group input, .filter-group select { font-size: .78rem; padding: 3px 5px; }
+    /* Hide verbose header subtitles */
+    .screen-header h2 > span { display: none; }
+    /* Modal tab layout: stack on mobile */
+    .modal-tab-pane.active { flex-direction: column; overflow-y: auto; }
+    .stats-panel { width: 100% !important; border-left: none !important; border-top: 1px solid var(--border); max-height: none; }
+    /* Short-term grid: 1-col on very small screens */
+    .short-grid { grid-template-columns: 1fr; grid-template-rows: repeat(4, 220px); }
+  }
+
+</style>
+</head>
+<body>
+
+<header class="site-header">
+  <h1>A股大市值 · 对数线性回归</h1>
+  <p>市值 &gt; 300亿 &nbsp;|&nbsp; 后复权日线 5年 &nbsp;|&nbsp; log(价格) ~ 时间 线性回归</p>
+</header>
+
+<div class="stats-strip" id="statsStrip">
+  <div class="stat-pill"><div class="val" id="sTotal">—</div><div class="lbl">符合条件公司</div></div>
+  <div class="stat-pill"><div class="val" id="sTotalMkt">—</div><div class="lbl">总市值（万亿元）</div></div>
+  <div class="stat-pill"><div class="val" id="sAvgMkt">—</div><div class="lbl">平均市值（亿元）</div></div>
+  <div class="stat-pill"><div class="val" id="sTime">—</div><div class="lbl">数据更新时间</div></div>
+</div>
+
+<div class="controls">
+  <input id="searchBox" type="text" placeholder="搜索代码 / 名称…" oninput="onSearch()">
+  <select id="sortSel" onchange="onSort()">
+    <option value="mkt_desc">市值 ↓</option>
+    <option value="mkt_asc">市值 ↑</option>
+    <option value="chg_desc">涨幅 ↓</option>
+    <option value="chg_asc">涨幅 ↑</option>
+  </select>
+  <button class="btn-refresh" onclick="loadList()">↻ 刷新</button>
+  <button class="btn-screen" onclick="openScreener()">⚡ 选股分析</button>
+  <button class="btn-screen" style="background:linear-gradient(135deg,#1a4f7f,#2b6cb0)" onclick="openTrend()">📈 趋势交易</button>
+  <span class="count-badge" id="countBadge"></span>
+</div>
+
+<div class="tbl-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>代码</th>
+        <th>名称</th>
+        <th>总市值（亿）</th>
+        <th>最新价</th>
+        <th>涨跌幅</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody id="tBody">
+      <tr class="loading-row"><td colspan="7"><div class="spin"></div><div style="margin-top:12px;color:var(--muted)">正在获取 A 股数据…</div></td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ── MODAL ─────────────────────────────────────────────────────────────── -->
+<div class="modal-overlay" id="modalOverlay" onclick="closeModal(event)">
+  <div class="modal-box" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h2 id="modalTitle">股票走势分析</h2>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <!-- Left tab sidebar -->
+      <div class="modal-tab-sidebar">
+        <button class="modal-side-tab active" id="tabBtnShort" onclick="switchModalTab('short')">短期<br>趋势</button>
+        <button class="modal-side-tab" id="tabBtnLong" onclick="switchModalTab('long')">长期<br>趋势</button>
+      </div>
+
+      <!-- Short-term tab: 2×2 grid (default) -->
+      <div id="modalTabShort" class="modal-tab-pane active">
+        <div class="short-grid">
+          <div class="short-cell" id="stIntradayCell">
+            <div class="short-cell-label">分时图</div>
+            <div class="short-cell-chart" id="stIntradayDiv"></div>
+          </div>
+          <div class="short-cell" id="stDailyCell">
+            <div class="short-cell-label">日线（均线：MA5 MA10 MA20）</div>
+            <div class="short-cell-chart" id="stDailyDiv"></div>
+          </div>
+          <div class="short-cell" id="stWeeklyCell">
+            <div class="short-cell-label">周线（均线：MA5 MA10 MA20）</div>
+            <div class="short-cell-chart" id="stWeeklyDiv"></div>
+          </div>
+          <div class="short-cell" id="stReservedCell">
+            <div class="short-cell-label"></div>
+            <div class="short-cell-chart" id="stReservedDiv"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Long-term tab: existing regression view -->
+      <div id="modalTabLong" class="modal-tab-pane">
+        <div class="chart-area">
+          <div class="yr-chips" id="yrChips">
+            <span style="font-size:.73rem;color:var(--muted);margin-right:2px">回归窗口：</span>
+            <button class="yr-chip active" data-yr="10y" onclick="toggleYr(this,'10y')">10年</button>
+            <button class="yr-chip active" data-yr="5y"  onclick="toggleYr(this,'5y')">5年</button>
+            <button class="yr-chip"        data-yr="3y"  onclick="toggleYr(this,'3y')">3年</button>
+            <button id="btnPhaseAnalyze"
+                    onclick="runPhaseAnalysis(_currentCode)"
+                    style="margin-left:auto;background:linear-gradient(135deg,#1a7f3c,#2ea043);
+                           color:#fff;border:none;border-radius:6px;padding:3px 12px;
+                           font-size:.78rem;font-weight:600;cursor:pointer;transition:opacity .15s">
+              📊 阶段分析
+            </button>
+          </div>
+          <div id="chartDiv" style="height:510px"></div>
+          <div id="aiAnalysisArea" style="flex-shrink:0"></div>
+        </div>
+        <div class="stats-panel" id="statsPanel">
+          <div style="text-align:center;padding:40px 0;color:var(--muted)"><div class="spin"></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── SCREENER OVERLAY ─────────────────────────────────────────────────── -->
+<div class="screen-overlay" id="screenOverlay" onclick="closeScreener(event)">
+  <div class="screen-box" onclick="event.stopPropagation()">
+
+    <div class="screen-header">
+      <h2>⚡ 选股分析 &nbsp;<span style="color:var(--muted);font-size:.82rem;font-weight:400">基于10年 / 5年 后复权对数线性回归</span></h2>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span id="selCount" style="font-size:.82rem;color:var(--muted)"></span>
+        <button id="btnPortfolio" class="btn-portfolio" onclick="openPortfolio()" disabled>🧩 组合分析</button>
+        <button class="modal-close" onclick="closeScreener()">✕</button>
+      </div>
+    </div>
+
+    <!-- filter bar -->
+    <div class="filter-bar">
+      <div class="filter-group">
+        <label>10年年化 ≥</label>
+        <input type="number" id="f10g" placeholder="如 10" step="0.5">
+      </div>
+      <div class="filter-group">
+        <label>5年年化 ≥</label>
+        <input type="number" id="f5g" placeholder="如 5" step="0.5">
+      </div>
+      <div class="filter-group">
+        <label>10年 R² ≥</label>
+        <input type="number" id="f10r" placeholder="如 80" step="1" min="0" max="100">
+      </div>
+      <div class="filter-group">
+        <label>5年 R² ≥</label>
+        <input type="number" id="f5r" placeholder="如 60" step="1" min="0" max="100">
+      </div>
+      <div class="filter-group">
+        <label>排序</label>
+        <select id="screenSort" onchange="renderScreenResults()">
+          <option value="default">默认（市值 ↓）</option>
+          <option value="g10_desc">10年年化 ↓</option>
+          <option value="g10_asc">10年年化 ↑</option>
+          <option value="g5_desc">5年年化 ↓</option>
+          <option value="g5_asc">5年年化 ↑</option>
+          <option value="r10_desc">10年R² ↓</option>
+          <option value="r10_asc">10年R² ↑</option>
+          <option value="r5_desc">5年R² ↓</option>
+          <option value="r5_asc">5年R² ↑</option>
+          <option value="mkt_desc">市值 ↓</option>
+          <option value="mkt_asc">市值 ↑</option>
+          <option value="pess_pe_asc">悲观PE ↑</option>
+          <option value="pess_pe_desc">悲观PE ↓</option>
+          <option value="ratio_asc">悲/基PE比 ↑</option>
+          <option value="ratio_desc">悲/基PE比 ↓</option>
+          <option value="ann_asc">年化回报 ↑</option>
+          <option value="ann_desc">年化回报 ↓</option>
+          <option value="debt_ratio_asc">负债率 ↑</option>
+          <option value="debt_ratio_desc">负债率 ↓</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>年化回报 ≥</label>
+        <input type="number" id="fAnnReturn" placeholder="如 8" step="1">
+      </div>
+      <div class="filter-group">
+        <label>资产负债率 &lt;</label>
+        <input type="number" id="fDebtRatio" placeholder="如 60" step="1" min="0" max="100">
+      </div>
+      <div class="filter-group" style="justify-content:flex-end;gap:8px">
+        <label>&nbsp;</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap;font-size:.82rem;color:var(--text)">
+          <input type="checkbox" id="fValuation" onchange="renderScreenResults()" style="accent-color:var(--accent)">
+          悲观PE &lt; 基准PE
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap;font-size:.82rem;color:var(--text)">
+          <input type="checkbox" id="fExcludeBank" onchange="renderScreenResults()" style="accent-color:var(--accent)">
+          排除银行股
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap;font-size:.82rem;color:var(--text)">
+          <input type="checkbox" id="fExcludeCyclical" onchange="renderScreenResults()" style="accent-color:var(--accent)">
+          排除周期股
+        </label>
+      </div>
+      <button class="btn-scan" id="btnScan" onclick="startScan()">▶ 开始扫描</button>
+      <button class="btn-filter" onclick="renderScreenResults()">筛选</button>
+      <button class="btn-clear-filter" onclick="clearFilters()">清空条件</button>
+      <span class="found-badge" id="foundBadge"></span>
+    </div>
+
+    <!-- progress -->
+    <div class="scan-progress" id="scanProgress" style="display:none">
+      <div class="progress-track"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+      <div class="progress-text" id="progressText">准备中…</div>
+    </div>
+
+    <!-- results -->
+    <div class="screen-results">
+      <table class="screen-tbl">
+        <thead>
+          <tr>
+            <th style="width:34px;padding:10px 6px;text-align:center"><input type="checkbox" id="cbSelectAll" title="全选当前结果" onchange="selectAllVisible(this)" style="cursor:pointer;accent-color:var(--accent)"></th>
+            <th onclick="setSortCol('rank')">#<span class="sort-arrow"></span></th>
+            <th onclick="setSortCol('代码')">代码<span class="sort-arrow"></span></th>
+            <th onclick="setSortCol('名称')">名称<span class="sort-arrow"></span></th>
+            <th onclick="setSortCol('市值亿')">市值(亿)<span class="sort-arrow"></span></th>
+            <th onclick="setSortCol('g10')" id="th_g10">10年年化%<span class="sort-arrow"></span></th>
+            <th onclick="setSortCol('g5')" id="th_g5">5年年化%<span class="sort-arrow"></span></th>
+            <th onclick="setSortCol('r10')" id="th_r10">10年R²<span class="sort-arrow"></span></th>
+            <th onclick="setSortCol('r5')" id="th_r5">5年R²<span class="sort-arrow"></span></th>
+            <th onclick="setSortCol('pess_pe')" id="th_pess_pe" title="悲观FwdPE：几何均值下调后的预估EPS计算">悲观PE<span class="sort-arrow"></span></th>
+            <th onclick="setSortCol('fair_pe_base')" id="th_fair_pe" title="基准终局FairPE：两阶段DCF，终值增速=rf%">基准PE<span class="sort-arrow"></span></th>
+            <th onclick="setSortCol('ann_return')" id="th_ann_return" title="基准终局3年纯资本利得年化回报 = (目标价/现价)^(1/3)−1；股息另计，不重复叠加">年化回报<span class="sort-arrow"></span></th>
+            <th onclick="setSortCol('debt_ratio')" id="th_debt_ratio" title="资产负债率（%），数据来源：东方财富">负债率%<span class="sort-arrow"></span></th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="screenTbody">
+          <tr><td colspan="14" style="text-align:center;padding:40px;color:var(--muted)">点击「开始扫描」拉取所有股票的回归数据（约需 3–5 分钟）</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+  </div>
+</div>
+
+<!-- ── TREND OVERLAY ──────────────────────────────────────────────────────── -->
+<div class="screen-overlay" id="trendOverlay" onclick="closeTrend(event)">
+  <div class="screen-box" onclick="event.stopPropagation()">
+
+    <div class="screen-header">
+      <h2>📈 趋势交易 &nbsp;<span style="color:var(--muted);font-size:.82rem;font-weight:400">周K线10根收盘价，归一化后对数线性回归</span></h2>
+      <button class="modal-close" onclick="closeTrend()">✕</button>
+    </div>
+
+    <!-- filter bar -->
+    <div class="filter-bar">
+      <div class="filter-group">
+        <label>斜率下限 (%/周)</label>
+        <input type="number" id="tFSlopeMin" placeholder="下限" step="0.1" value="1.5">
+      </div>
+      <div class="filter-group">
+        <label>去掉斜率 top (%)</label>
+        <input type="number" id="tFSlopeTopPct" placeholder="如 1" step="0.5" min="0" max="50" value="1">
+      </div>
+      <div class="filter-group">
+        <label title="趋势回归残差标准差上限（%），越小说明走势越稳定；与斜率高低无关">σ_res ≤ (%)</label>
+        <input type="number" id="tFR2" placeholder="如 6" step="0.5" min="0" value="6">
+      </div>
+      <div class="filter-group">
+        <label title="斜率（%/周）不超过 N×ATR（ATR = 近50日日涨跌幅绝对值均值），过滤过热品种">斜率 ≤ N×ATR</label>
+        <input type="number" id="tFGainMax" placeholder="如 2" step="0.5" min="0" value="2">
+      </div>
+      <div class="filter-group">
+        <label>市值下限 (亿)</label>
+        <input type="number" id="tFMktMin" placeholder="下限" step="50" min="0" value="500">
+      </div>
+      <div class="filter-group">
+        <label>市值上限 (亿)</label>
+        <input type="number" id="tFMktMax" placeholder="不限" step="500" min="0">
+      </div>
+      <div class="filter-group" style="justify-content:flex-end;gap:8px">
+        <label>&nbsp;</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap;font-size:.82rem;color:var(--text)"
+               title="排除 PE ≤ 0 的亏损股（ETF 自动豁免，PE 无意义）">
+          <input type="checkbox" id="tFExcludeLoss" onchange="renderTrendResults()" checked style="accent-color:var(--accent)">
+          排除亏损股
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap;font-size:.82rem;color:var(--text)"
+               title="回撤 > 2×ATR 时过滤；> 1×ATR 得分×0.85（ATR = 近50日日涨跌幅绝对值均值）">
+          <input type="checkbox" id="tFExcludeReverse" onchange="renderTrendResults()" checked style="accent-color:var(--accent)">
+          排除反转股
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap;font-size:.82rem;color:var(--text)"
+               title="20周涨幅过大时对综合得分做乘法惩罚：>25% ×0.95 | >40% ×0.85 | >60% ×0.75，防止追高过热品种">
+          <input type="checkbox" id="tFPenalty20w" onchange="renderTrendResults()" checked style="accent-color:var(--accent)">
+          20周超涨惩罚
+        </label>
+      </div>
+      <div class="filter-group">
+        <label>排序</label>
+        <select id="tSort" onchange="renderTrendResults()">
+          <option value="score_desc">综合得分 ↓ (斜率/σ_res)</option>
+          <option value="slope_desc">斜率 ↓</option>
+          <option value="slope_asc">斜率 ↑</option>
+          <option value="r2_desc">σ_res ↑ (噪声小优先)</option>
+          <option value="mkt_desc">市值 ↓</option>
+        </select>
+      </div>
+      <div class="filter-group" style="justify-content:flex-end;gap:8px">
+        <label>&nbsp;</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap;font-size:.82rem;color:var(--text)">
+          <input type="checkbox" id="tExcludeBank" onchange="renderTrendResults()" style="accent-color:var(--accent)">
+          排除银行股
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap;font-size:.82rem;color:var(--text)">
+          <input type="checkbox" id="tExcludeCyclical" onchange="renderTrendResults()" style="accent-color:var(--accent)">
+          排除周期股
+        </label>
+      </div>
+      <button class="btn-scan" id="btnTrendScan" onclick="startTrendScan(true)">▶ 开始扫描</button>
+      <button class="btn-filter" onclick="renderTrendResults()">筛选</button>
+      <button class="btn-clear-filter" onclick="clearTrendFilters()">清空</button>
+      <span class="found-badge" id="tFoundBadge"></span>
+    </div>
+
+    <!-- progress -->
+    <div class="scan-progress" id="trendProgress" style="display:none">
+      <div class="progress-track"><div class="progress-fill" id="trendProgressFill" style="width:0%"></div></div>
+      <span class="progress-label" id="trendProgressLabel"></span>
+    </div>
+
+    <!-- results: mobile cards (shown on small screens) -->
+    <div id="trendMobileCards" class="trend-mobile-cards"></div>
+
+    <!-- results table (shown on desktop) -->
+    <div class="screen-results">
+      <table class="screen-tbl">
+        <thead>
+          <tr>
+            <th onclick="setTrendSort('rank')">#</th>
+            <th onclick="setTrendSort('代码')">代码</th>
+            <th onclick="setTrendSort('名称')">名称</th>
+            <th onclick="setTrendSort('mkt')" title="总市值（亿）">市值</th>
+            <th onclick="setTrendSort('slope')" id="tth_slope" title="周K线10根对数回归斜率（%/周）；正值=上升趋势">斜率%/周<span class="sort-arrow"></span></th>
+            <th onclick="setTrendSort('r2')" id="tth_r2" title="趋势回归残差标准差（%）；越小说明走势越纯粹，与斜率高低无关">σ_res%<span class="sort-arrow"></span></th>
+            <th onclick="setTrendSort('score')" id="tth_score" title="综合得分 = 斜率 / (1 + σ_res)">得分<span class="sort-arrow"></span></th>
+            <th onclick="setTrendSort('pe')" id="tth_pe" title="动态市盈率（腾讯实时）">PE<span class="sort-arrow"></span></th>
+            <th onclick="setTrendSort('gain')" id="tth_gain" title="10周累计涨幅（首根收盘→末根收盘）">10周涨幅<span class="sort-arrow"></span></th>
+            <th onclick="setTrendSort('ret20')" id="tth_ret20" title="20周累计涨幅">20周涨幅<span class="sort-arrow"></span></th>
+            <th onclick="setTrendSort('drawdown')" id="tth_drawdown" title="当前收盘价距近50日收盘价最高点的回撤幅度">回撤%<span class="sort-arrow"></span></th>
+            <th onclick="setTrendSort('atr')" id="tth_atr" title="近50日每日涨跌幅绝对值均值（%），波动率指标">ATR%<span class="sort-arrow"></span></th>
+            <th onclick="setTrendSort('pct10w')" id="tth_pct10w" title="当前10周涨幅在过去两年所有10周滚动涨幅中的分位数">10周涨幅分位<span class="sort-arrow"></span></th>
+            <th onclick="setTrendSort('pct20w')" id="tth_pct20w" title="当前20周涨幅在过去两年所有20周滚动涨幅中的分位数">20周涨幅分位<span class="sort-arrow"></span></th>
+            <th onclick="setTrendSort('chgToday')" id="tth_chgToday" title="今日涨跌幅（实时）">今日涨跌<span class="sort-arrow"></span></th>
+            <th>近10周走势</th>
+            <th>惩罚</th>
+            <th>行业</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="trendTbody">
+          <tr><td colspan="14" style="text-align:center;padding:40px;color:var(--muted)">点击「开始扫描」获取全部股票的周K趋势数据（约需 3–5 分钟）</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+  </div>
+</div>
+
+<!-- ── PORTFOLIO OVERLAY ─────────────────────────────────────────────────── -->
+<div class="modal-overlay" id="portfolioOverlay" onclick="closePortfolio(event)" style="z-index:1300">
+  <div class="modal-box" onclick="event.stopPropagation()" style="max-width:1420px">
+    <div class="modal-header">
+      <h2 id="portfolioTitle">等权组合分析</h2>
+      <button class="modal-close" onclick="closePortfolio()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="chart-area">
+        <div id="portfolioChartDiv" style="height:520px"></div>
+      </div>
+      <div class="stats-panel" id="portfolioStatsPanel" style="width:280px">
+        <div style="text-align:center;padding:40px 0;color:var(--muted)"><div class="spin"></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Correlation hover panel -->
+<div id="corrPanel" style="display:none;position:fixed;z-index:3000;
+     background:#161b22;border:1px solid #30363d;border-radius:8px;
+     padding:10px 14px;min-width:210px;
+     box-shadow:0 6px 24px rgba(0,0,0,.7);pointer-events:none">
+  <div style="font-size:.7rem;color:var(--muted);margin-bottom:6px;font-weight:600">与其他结果的相关性</div>
+  <div id="corrPanelContent"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+let allStocks = [];
+let view = [];
+
+// ── year-window toggle state ──────────────────────────────────────────────────
+let _analysisGen      = 0;          // incremented on each new stock open; stale tasks abort
+let _phaseGen         = 0;          // same for chart phase analysis
+let _selectedYears    = new Set(['10y', '5y']);
+let _currentChartData = null;
+let _currentStockName = '';
+let _currentCode      = '';
+
+// ── load stock list ──────────────────────────────────────────────────────────
+async function loadList() {
+  setTbody(`<tr class="loading-row"><td colspan="7"><div class="spin"></div><div style="margin-top:12px;color:var(--muted)">正在获取 A 股列表，请稍候（约 10–20 秒）…</div></td></tr>`);
+  try {
+    const r = await fetch('/api/stocks');
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+
+    allStocks = d.data;
+    view = [...allStocks];
+
+    const total = d.total;
+    const sumMkt = allStocks.reduce((s, x) => s + x['市值亿'], 0);
+    document.getElementById('sTotal').textContent   = total;
+    document.getElementById('sTotalMkt').textContent = (sumMkt / 10000).toFixed(1);
+    document.getElementById('sAvgMkt').textContent  = (sumMkt / total).toFixed(0);
+    document.getElementById('sTime').textContent    = new Date().toLocaleTimeString('zh-CN');
+
+    renderTable();
+  } catch(e) {
+    setTbody(`<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--red)">加载失败：${e.message}</td></tr>`);
+  }
+}
+
+// ── filter / sort ────────────────────────────────────────────────────────────
+function onSearch() {
+  const q = document.getElementById('searchBox').value.trim().toLowerCase();
+  view = allStocks.filter(s => !q || s['代码'].includes(q) || s['名称'].includes(q));
+  renderTable();
+}
+
+function onSort() {
+  const v = document.getElementById('sortSel').value;
+  const col = v.startsWith('mkt') ? '市值亿' : '涨跌幅';
+  const asc = v.endsWith('asc');
+  view.sort((a, b) => asc ? a[col] - b[col] : b[col] - a[col]);
+  renderTable();
+}
+
+// ── render table ─────────────────────────────────────────────────────────────
+function renderTable() {
+  document.getElementById('countBadge').textContent = `显示 ${view.length} / ${allStocks.length} 只`;
+  if (!view.length) { setTbody(`<tr><td colspan="7" style="text-align:center;padding:30px;color:var(--muted)">无匹配结果</td></tr>`); return; }
+
+  const rows = view.map((s, i) => {
+    const chg  = s['涨跌幅'];
+    const cls  = chg >= 0 ? 'pos' : 'neg';
+    const sign = chg >= 0 ? '+' : '';
+    return `<tr onclick="openModal('${s['代码']}','${s['名称']}')">
+      <td class="rank">${i+1}</td>
+      <td class="code">${s['代码']}</td>
+      <td>${s['名称']}</td>
+      <td><span class="mktcap">${s['市值亿'].toFixed(0)}</span></td>
+      <td>${s['最新价']}</td>
+      <td class="${cls}">${sign}${chg.toFixed(2)}%</td>
+      <td><button class="btn-analyze" onclick="event.stopPropagation();openModal('${s['代码']}','${s['名称']}')">回归分析</button></td>
+    </tr>`;
+  }).join('');
+  setTbody(rows);
+}
+
+function setTbody(html) {
+  document.getElementById('tBody').innerHTML = html;
+}
+
+// ── modal tab switching ───────────────────────────────────────────────────────
+let _longTermLoaded = false;
+
+function switchModalTab(which) {
+  ['short','long'].forEach(t => {
+    document.getElementById(`modalTab${t.charAt(0).toUpperCase()+t.slice(1)}`).classList.toggle('active', t === which);
+    document.getElementById(`tabBtn${t.charAt(0).toUpperCase()+t.slice(1)}`).classList.toggle('active', t === which);
+  });
+  if (which === 'long' && !_longTermLoaded) {
+    _longTermLoaded = true;
+    _loadLongTerm(_currentCode, _currentStockName);
+  }
+}
+
+async function _loadLongTerm(code, name) {
+  document.getElementById('statsPanel').innerHTML = `<div style="text-align:center;padding:40px 0;color:var(--muted)"><div class="spin"></div><div style="margin-top:12px;font-size:.8rem">拉取历史行情…</div></div>`;
+  document.getElementById('chartDiv').innerHTML = '';
+  document.getElementById('aiAnalysisArea').innerHTML = '';
+  _analysisGen++; _phaseGen++;
+  document.getElementById('phaseHoverTip')?.remove();
+  const _pb = document.getElementById('btnPhaseAnalyze');
+  if (_pb) { _pb.disabled = false; _pb.style.opacity = '1'; _pb.textContent = '📊 阶段分析'; }
+  _selectedYears = new Set(['10y', '5y']);
+  document.querySelectorAll('.yr-chip').forEach(btn => {
+    btn.classList.toggle('active', _selectedYears.has(btn.dataset.yr));
+  });
+  try {
+    const r = await fetch(`/api/stock/${code}`);
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    _currentChartData = d;
+    drawChart(d, name, code);
+    drawStats(d.stats_10y, d.stats_5y, d.band_stats, d, code);
+    drawAiCard(code);
+  } catch(e) {
+    document.getElementById('chartDiv').innerHTML =
+      `<div style="color:var(--red);text-align:center;padding:60px">加载失败：${e.message}</div>`;
+    document.getElementById('statsPanel').innerHTML = '';
+  }
+}
+
+// ── modal ────────────────────────────────────────────────────────────────────
+function openModal(code, name) {
+  _currentCode      = code;
+  _currentStockName = name;
+  _longTermLoaded   = false;
+  document.getElementById('modalTitle').textContent = `${name}（${code}）`;
+  document.getElementById('modalOverlay').classList.add('open');
+  switchModalTab('short');
+  _loadShortTerm(code);
+}
+
+// ── short-term charts ─────────────────────────────────────────────────────────
+function _stLoading(divId, label) {
+  document.getElementById(divId).innerHTML =
+    `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-size:.8rem">${label}</div>`;
+}
+function _stError(divId, msg) {
+  document.getElementById(divId).innerHTML =
+    `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--red);font-size:.75rem">${msg}</div>`;
+}
+
+function _computeMA(closes, n) {
+  return closes.map((_, i) =>
+    i < n - 1 ? null : closes.slice(i - n + 1, i + 1).reduce((a, b) => a + b, 0) / n
+  );
+}
+
+function _drawKline(divId, rows, maWindows) {
+  if (!rows || !rows.length) { _stError(divId, '暂无K线数据'); return; }
+  const dates  = rows.map(r => r.date);
+  const opens  = rows.map(r => r.open);
+  const highs  = rows.map(r => r.high);
+  const lows   = rows.map(r => r.low);
+  const closes = rows.map(r => r.close);
+
+  const traces = [{
+    type: 'candlestick',
+    x: dates, open: opens, high: highs, low: lows, close: closes,
+    increasing: { line: { color: '#f85149', width: 1 }, fillcolor: '#f85149' },
+    decreasing: { line: { color: '#3fb950', width: 1 }, fillcolor: '#3fb950' },
+    name: 'K线', showlegend: false,
+    hoverinfo: 'x+y',
+  }];
+
+  const maColors = ['#e3b341','#58a6ff','#bc8cff'];
+  (maWindows || [5, 10, 20]).forEach((n, i) => {
+    const ma = _computeMA(closes, n);
+    traces.push({
+      type: 'scatter', mode: 'lines', x: dates, y: ma,
+      name: `MA${n}`, line: { color: maColors[i % maColors.length], width: 1.2 },
+      connectgaps: false, hovertemplate: `MA${n}: %{y:.2f}<extra></extra>`,
+    });
+  });
+
+  const layout = {
+    paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
+    margin: { l: 42, r: 8, t: 4, b: 36 },
+    xaxis: {
+      type: 'category', color: '#8b949e', gridcolor: 'rgba(255,255,255,.06)',
+      tickfont: { size: 10 }, rangeslider: { visible: false },
+      tickangle: -30,
+      nticks: 8,
+    },
+    yaxis: { color: '#8b949e', gridcolor: 'rgba(255,255,255,.06)', tickfont: { size: 10 }, autorange: true },
+    legend: { font: { size: 10, color: '#8b949e' }, orientation: 'h', y: 1.04, x: 0 },
+    font: { family: 'inherit' },
+  };
+  Plotly.newPlot(divId, traces, layout, { responsive: true, displayModeBar: false });
+}
+
+function _drawIntraday(divId, data) {
+  if (!data.success || !data.times || !data.times.length) {
+    _stError(divId, '暂无分时数据'); return;
+  }
+  const { times, prices, prev_close } = data;
+  const minP = Math.min(...prices);
+  const baseline = Array(times.length).fill(minP * 0.9998);
+  const traces = [
+    // invisible baseline — gives tonexty a floor above zero
+    {
+      type: 'scatter', mode: 'lines', x: times, y: baseline,
+      line: { width: 0 }, showlegend: false, hoverinfo: 'skip',
+    },
+    {
+      type: 'scatter', mode: 'lines', x: times, y: prices,
+      line: { color: '#58a6ff', width: 1.5 },
+      fill: 'tonexty', fillcolor: 'rgba(88,166,255,.08)',
+      name: '价格', hovertemplate: '%{x} %{y:.2f}<extra></extra>',
+    },
+  ];
+  if (prev_close > 0) {
+    traces.push({
+      type: 'scatter', mode: 'lines',
+      x: [times[0], times[times.length - 1]],
+      y: [prev_close, prev_close],
+      line: { color: 'rgba(255,255,255,.3)', width: 1, dash: 'dot' },
+      name: '昨收', hovertemplate: `昨收: ${prev_close.toFixed(2)}<extra></extra>`,
+    });
+  }
+  const layout = {
+    paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
+    margin: { l: 42, r: 8, t: 4, b: 36 },
+    xaxis: { color: '#8b949e', gridcolor: 'rgba(255,255,255,.06)', tickfont: { size: 10 } },
+    yaxis: { color: '#8b949e', gridcolor: 'rgba(255,255,255,.06)', tickfont: { size: 10 }, autorange: true },
+    legend: { font: { size: 10, color: '#8b949e' }, orientation: 'h', y: 1.04, x: 0 },
+    font: { family: 'inherit' },
+  };
+  Plotly.newPlot(divId, traces, layout, { responsive: true, displayModeBar: false });
+}
+
+async function _loadShortTerm(code) {
+  ['stIntradayDiv','stDailyDiv','stWeeklyDiv'].forEach(id => _stLoading(id, '加载中…'));
+
+  const [klineRes, intradayRes] = await Promise.all([
+    fetch(`/api/stock/kline/${code}`).then(r => r.json()).catch(() => null),
+    fetch(`/api/stock/intraday/${code}`).then(r => r.json()).catch(() => null),
+  ]);
+
+  // 分时图
+  if (intradayRes) _drawIntraday('stIntradayDiv', intradayRes);
+  else _stError('stIntradayDiv', '分时数据加载失败');
+
+  // 日线
+  if (klineRes?.success && klineRes.daily?.length) {
+    _drawKline('stDailyDiv', klineRes.daily, [5, 10, 20]);
+  } else {
+    _stError('stDailyDiv', '日线数据加载失败');
+  }
+
+  // 周线
+  if (klineRes?.success && klineRes.weekly?.length) {
+    _drawKline('stWeeklyDiv', klineRes.weekly, [5, 10, 20]);
+  } else {
+    _stError('stWeeklyDiv', '周线数据加载失败');
+  }
+}
+
+function closeModal(ev) {
+  if (!ev || ev.target === document.getElementById('modalOverlay')) {
+    document.getElementById('modalOverlay').classList.remove('open');
+    Plotly.purge('chartDiv');
+    ['stIntradayDiv','stDailyDiv','stWeeklyDiv'].forEach(id => {
+      try { Plotly.purge(id); } catch(_) {}
+    });
+  }
+}
+
+// ── chart ────────────────────────────────────────────────────────────────────
+function drawChart(d, name, code) {
+  const hasPE = !!(d.pe_dates && d.pe_vals && d.pe_vals.length > 20);
+  const has3y = !!(d.reg_3y  && d.reg_3y.length > 0);
+
+  const priceDomain = hasPE ? [0.36, 1.0] : [0, 1.0];
+  const peDomain    = [0, 0.29];
+
+  const sel10 = _selectedYears.has('10y');
+  const sel5  = _selectedYears.has('5y');
+  const sel3  = _selectedYears.has('3y') && has3y;
+
+  // ── traces ────────────────────────────────────────────────────────────────
+  const traces = [];
+
+  // 5-year P10/P90 bands (drawn first so price line renders on top)
+  if (sel5 && d.lower_band) {
+    traces.push({
+      x: d.dates, y: d.lower_band, type: 'scatter', mode: 'lines',
+      name: '止损参考-5年（P10）',
+      line: { color: 'rgba(248,81,73,0.55)', width: 1.5, dash: 'longdash' },
+      hovertemplate: '%{y:.2f}<extra>止损线(5年)</extra>'
+    });
+    traces.push({
+      x: d.dates, y: d.upper_band, type: 'scatter', mode: 'lines',
+      name: '止盈参考-5年（P90）',
+      fill: 'tonexty', fillcolor: 'rgba(88,166,255,0.05)',
+      line: { color: 'rgba(63,185,80,0.55)', width: 1.5, dash: 'longdash' },
+      hovertemplate: '%{y:.2f}<extra>止盈线(5年)</extra>'
+    });
+  }
+
+  // 3-year P10/P90 bands
+  if (sel3 && d.lower_band_3y) {
+    traces.push({
+      x: d.dates, y: d.lower_band_3y, type: 'scatter', mode: 'lines',
+      name: '止损参考-3年（P10）',
+      line: { color: 'rgba(227,179,65,0.45)', width: 1.2, dash: 'longdash' },
+      hovertemplate: '%{y:.2f}<extra>止损线(3年)</extra>'
+    });
+    traces.push({
+      x: d.dates, y: d.upper_band_3y, type: 'scatter', mode: 'lines',
+      name: '止盈参考-3年（P90）',
+      fill: 'tonexty', fillcolor: 'rgba(227,179,65,0.04)',
+      line: { color: 'rgba(227,179,65,0.45)', width: 1.2, dash: 'longdash' },
+      hovertemplate: '%{y:.2f}<extra>止盈线(3年)</extra>'
+    });
+  }
+
+  // Price line (always shown)
+  traces.push({
+    x: d.dates, y: d.prices, type: 'scatter', mode: 'lines',
+    name: '后复权收盘价',
+    line: { color: '#58a6ff', width: 1.5 },
+    hovertemplate: '%{y:.2f}<extra>收盘价</extra>'
+  });
+
+  // Regression lines — only for selected windows
+  if (sel10) {
+    traces.push({
+      x: d.dates, y: d.reg_10y, type: 'scatter', mode: 'lines',
+      name: '10年回归趋势',
+      line: { color: '#f78166', width: 2, dash: 'dot' },
+      hovertemplate: '%{y:.2f}<extra>10年趋势</extra>'
+    });
+  }
+  if (sel5) {
+    traces.push({
+      x: d.dates, y: d.reg_5y, type: 'scatter', mode: 'lines',
+      name: '5年回归趋势',
+      line: { color: '#3fb950', width: 2, dash: 'dash' },
+      hovertemplate: '%{y:.2f}<extra>5年趋势</extra>'
+    });
+  }
+  if (sel3) {
+    traces.push({
+      x: d.dates, y: d.reg_3y, type: 'scatter', mode: 'lines',
+      name: '3年回归趋势',
+      line: { color: '#e3b341', width: 2, dash: 'dashdot' },
+      hovertemplate: '%{y:.2f}<extra>3年趋势</extra>'
+    });
+  }
+
+  // ── PE sub-chart traces ───────────────────────────────────────────────────
+  let peOverRanges = [];
+  if (hasPE) {
+    const ps = d.pe_stats;
+    const PE_CLIP = 80;
+    const peDisplay = d.pe_vals.map(v => Math.min(v, PE_CLIP));
+    let overStart = null;
+    for (let i = 0; i < d.pe_vals.length; i++) {
+      if (d.pe_vals[i] > PE_CLIP) {
+        if (overStart === null) overStart = d.pe_dates[i];
+      } else {
+        if (overStart !== null) { peOverRanges.push([overStart, d.pe_dates[i - 1]]); overStart = null; }
+      }
+    }
+    if (overStart !== null) peOverRanges.push([overStart, d.pe_dates[d.pe_dates.length - 1]]);
+    traces.push({
+      x: d.pe_dates, y: d.pe_vals.map(() => ps.p25),
+      type: 'scatter', mode: 'lines', yaxis: 'y2',
+      line: { width: 0 }, showlegend: false, hoverinfo: 'skip', name: '_pe_p25_base'
+    });
+    traces.push({
+      x: d.pe_dates, y: d.pe_vals.map(() => ps.p75),
+      type: 'scatter', mode: 'lines', yaxis: 'y2',
+      fill: 'tonexty', fillcolor: 'rgba(210,168,255,0.08)',
+      line: { width: 0 }, showlegend: false, hoverinfo: 'skip', name: '_pe_iqr'
+    });
+    traces.push({
+      x: d.pe_dates, y: peDisplay,
+      type: 'scatter', mode: 'lines', yaxis: 'y2',
+      name: 'PE（TTM）',
+      line: { color: 'rgba(210,168,255,0.85)', width: 1.5 },
+      hovertemplate: 'PE: %{y:.1f}x<extra>PE TTM</extra>'
+    });
+    traces.push({
+      x: [d.pe_dates[0], d.pe_dates[d.pe_dates.length - 1]],
+      y: [ps.median, ps.median],
+      type: 'scatter', mode: 'lines', yaxis: 'y2',
+      name: `PE中位 ${ps.median}x`,
+      line: { color: 'rgba(210,168,255,0.4)', width: 1, dash: 'dot' },
+      hoverinfo: 'skip', showlegend: false
+    });
+  }
+
+  // ── shapes ────────────────────────────────────────────────────────────────
+  const shapes = [];
+
+  // Vertical split lines
+  if (sel5 && d.split_5y_date) {
+    shapes.push({
+      type: 'line', x0: d.split_5y_date, x1: d.split_5y_date,
+      yref: 'paper', y0: 0, y1: 1,
+      line: { color: 'rgba(63,185,80,0.35)', width: 1.5, dash: 'dot' }
+    });
+  }
+  if (sel3 && d.split_3y_date) {
+    shapes.push({
+      type: 'line', x0: d.split_3y_date, x1: d.split_3y_date,
+      yref: 'paper', y0: 0, y1: 1,
+      line: { color: 'rgba(227,179,65,0.35)', width: 1.5, dash: 'dot' }
+    });
+  }
+
+  // PE loss-period shading
+  if (hasPE && d.loss_ranges && d.loss_ranges.length > 0) {
+    d.loss_ranges.forEach(([s, e]) => {
+      shapes.push({
+        type: 'rect', xref: 'x', x0: s, x1: e,
+        yref: 'paper', y0: 0, y1: 0.30,
+        fillcolor: 'rgba(248,81,73,0.18)', line: { width: 0 }, layer: 'below'
+      });
+    });
+  }
+  // PE>80 overflow shading
+  if (hasPE && peOverRanges.length > 0) {
+    peOverRanges.forEach(([s, e]) => {
+      shapes.push({
+        type: 'rect', xref: 'x', x0: s, x1: e,
+        yref: 'paper', y0: 0, y1: 0.30,
+        fillcolor: 'rgba(210,168,255,0.18)', line: { width: 0 }, layer: 'below'
+      });
+    });
+  }
+
+  // ── annotations ───────────────────────────────────────────────────────────
+  const annotations = [];
+  if (sel5 && d.split_5y_date) {
+    annotations.push({
+      x: d.split_5y_date, yref: 'paper',
+      y: hasPE ? 0.99 : 0.98,
+      xanchor: 'left', yanchor: 'top',
+      text: '← 10年    5年 →', showarrow: false,
+      font: { size: 10, color: 'rgba(63,185,80,0.7)' }
+    });
+  }
+  if (sel3 && d.split_3y_date) {
+    annotations.push({
+      x: d.split_3y_date, yref: 'paper',
+      y: hasPE ? 0.92 : 0.91,
+      xanchor: 'left', yanchor: 'top',
+      text: '← 5年    3年 →', showarrow: false,
+      font: { size: 10, color: 'rgba(227,179,65,0.7)' }
+    });
+  }
+  if (hasPE) {
+    annotations.push({
+      x: d.pe_dates[0], xanchor: 'left',
+      yref: 'paper', y: 0.27, yanchor: 'top',
+      text: 'PE（TTM）', showarrow: false,
+      font: { size: 9, color: 'rgba(210,168,255,0.6)' }
+    });
+  }
+
+  // ── layout ────────────────────────────────────────────────────────────────
+  const layout = {
+    paper_bgcolor: '#161b22',
+    plot_bgcolor:  '#0d1117',
+    font: { color: '#c9d1d9', size: 12 },
+    xaxis: {
+      gridcolor: '#21262d', linecolor: '#30363d',
+      tickformat: '%Y-%m', tickfont: { size: 11 },
+      title: hasPE ? '' : '日期',
+    },
+    yaxis: {
+      title: '后复权收盘价（对数坐标）', type: 'log',
+      domain: priceDomain,
+      gridcolor: '#21262d', linecolor: '#30363d',
+      tickformat: '.2f', tickfont: { size: 11 }
+    },
+    legend: {
+      bgcolor: '#0d1117', bordercolor: '#30363d', borderwidth: 1,
+      x: 0.01, y: 0.99, font: { size: 10 }
+    },
+    shapes, annotations,
+    margin: { t: 20, b: hasPE ? 45 : 55, l: 70, r: 20 },
+    hovermode: 'x unified'
+  };
+
+  if (hasPE) {
+    layout.yaxis2 = {
+      domain: peDomain, anchor: 'x', type: 'log',
+      gridcolor: '#21262d', linecolor: '#30363d',
+      tickfont: { size: 10 }, tickformat: '.1f',
+      title: { text: 'PE(log)', font: { size: 10 } }
+    };
+    shapes.push({
+      type: 'line', xref: 'paper', x0: 0, x1: 1,
+      yref: 'paper', y0: 0.31, y1: 0.31,
+      line: { color: 'rgba(48,54,61,0.8)', width: 1 }
+    });
+  }
+
+  Plotly.react('chartDiv', traces, layout, { responsive: true, displayModeBar: false });
+}
+
+// ── year window toggle ────────────────────────────────────────────────────────
+function toggleYr(btn, yr) {
+  if (_selectedYears.has(yr)) {
+    if (_selectedYears.size <= 1) return;   // keep at least one window selected
+    _selectedYears.delete(yr);
+    btn.classList.remove('active');
+  } else {
+    _selectedYears.add(yr);
+    btn.classList.add('active');
+  }
+  if (_currentChartData) {
+    drawChart(_currentChartData, _currentStockName, _currentCode);
+    drawStats(_currentChartData.stats_10y, _currentChartData.stats_5y,
+              _currentChartData.band_stats, _currentChartData, _currentCode);
+  }
+}
+
+// ── helper: analyst consensus EPS card ───────────────────────────────────────
+function buildConsensusHtml(pe) {
+  const c = pe && pe.consensus_eps;
+  if (!c) return '';
+  const rows = c.forecasts || [];
+  if (!rows.length && !c.org_num) return '';
+
+  // Rating summary chips
+  const ratingParts = [];
+  if (c.buy_num)     ratingParts.push(`<span style="color:#3fb950">${c.buy_num}买入</span>`);
+  if (c.add_num)     ratingParts.push(`<span style="color:#58a6ff">${c.add_num}增持</span>`);
+  if (c.neutral_num) ratingParts.push(`<span style="color:var(--muted)">${c.neutral_num}中性</span>`);
+  if (c.reduce_num)  ratingParts.push(`<span style="color:#f85149">${c.reduce_num}减持</span>`);
+
+  const orgHtml = c.org_num
+    ? `<span style="color:var(--muted);font-size:.7rem">${c.org_num}家机构覆盖</span>`
+    : '';
+  const ratingHtml = ratingParts.length
+    ? `<div style="font-size:.7rem;margin:3px 0 5px">${ratingParts.join('<span style="color:rgba(255,255,255,.2)"> · </span>')}</div>`
+    : '';
+
+  // Target price range
+  let targetHtml = '';
+  if (c.target_high != null || c.target_low != null) {
+    const t_lo = c.target_low  != null ? `¥${c.target_low.toFixed(0)}`  : '—';
+    const t_hi = c.target_high != null ? `¥${c.target_high.toFixed(0)}` : '—';
+    targetHtml = `
+      <div style="display:flex;align-items:center;justify-content:space-between;
+                  padding:4px 0;border-bottom:1px solid rgba(255,255,255,.06);margin-bottom:4px">
+        <span style="font-size:.68rem;color:var(--muted)">目标价区间</span>
+        <span style="font-size:.75rem;color:#e3b341;font-weight:600">${t_lo} ~ ${t_hi}</span>
+      </div>`;
+  }
+
+  // EPS forecast rows (consensus + pessimistic side by side)
+  const pe_map = {};  // year_mark+year -> pessimistic eps
+  if (c.pessimistic_eps) {
+    const yrs = c.pessimistic_eps.years || [];
+    pe_map[yrs[0]] = c.pessimistic_eps.A;
+    pe_map[yrs[1]] = c.pessimistic_eps.B_star;
+    pe_map[yrs[2]] = c.pessimistic_eps.C_star;
+    pe_map[yrs[3]] = c.pessimistic_eps.D_star;
+  }
+
+  function peColor(v) {
+    return v == null ? 'var(--muted)' : v < 15 ? '#3fb950' : v < 25 ? '#e3b341' : '#f85149';
+  }
+
+  const rowsHtml = rows.map(r => {
+    const label = r.year_mark === 'A' ? `${r.year}A` : `${r.year}E`;
+    const labelColor = r.year_mark === 'A' ? 'var(--muted)' : 'var(--text)';
+    const fwdPeHtml = r.forward_pe != null
+      ? `<span style="color:${peColor(r.forward_pe)};font-weight:600">${r.forward_pe.toFixed(1)}x</span>`
+      : `<span style="color:var(--muted)">—</span>`;
+    // Pessimistic EPS for this year (A row shows actual, no adjustment)
+    const pEps = pe_map[r.year];
+    const pPe  = (pEps && pEps > 0 && r.forward_pe != null)
+                 ? null   // computed separately from pessimistic_fwd_pe (single blended value)
+                 : null;
+    const pessEpsHtml = (pEps != null && r.year_mark !== 'A')
+      ? `<span style="font-size:.72rem;color:var(--muted)">¥${pEps.toFixed(2)}</span>`
+      : `<span style="font-size:.72rem;color:rgba(255,255,255,.15)">—</span>`;
+    return `
+      <div style="display:grid;grid-template-columns:2fr 3fr 2fr 2fr;align-items:center;
+                  padding:3px 0;border-bottom:1px solid rgba(255,255,255,.04);gap:4px">
+        <span style="font-size:.7rem;color:${labelColor}">${label}</span>
+        <span style="font-size:.78rem;font-weight:600;color:var(--text)">¥${r.eps.toFixed(2)}</span>
+        ${fwdPeHtml}
+        ${pessEpsHtml}
+      </div>`;
+  }).join('');
+
+  // Fair PE analysis block (Gordon Growth Model, replaces PEG)
+  let pessimisticHtml = '';
+  const fpa = c.fair_pe_analysis;
+  if (fpa && c.pessimistic_fwd_pe != null) {
+    const pesspe = c.pessimistic_fwd_pe;
+
+    // Build two-stage DCF scenario rows (terminal growth varies, Stage1 EPS fixed)
+    // 4 columns: label+gt merged | PE公允 | 溢/折价 | 年化回报
+    const scenRows = fpa.scenarios.map(s => {
+      const gtStr  = s.g_t != null ? `${s.g_t.toFixed(1)}%` : '—';
+      const fairPe = s.fair_pe;
+      let valHtml, ratioHtml, retHtml;
+      if (fairPe == null) {
+        valHtml   = `<span style="color:rgba(255,255,255,.25);font-size:.68rem">—</span>`;
+        ratioHtml = `<span style="color:rgba(255,255,255,.2)">—</span>`;
+        retHtml   = `<span style="color:rgba(255,255,255,.2)">—</span>`;
+      } else {
+        // 溢/折价 = 现价 vs 本情景 DCF 公允价（= base_eps × fair_pe）
+        // 用 A×fair_pe 而非 pess_pe/fair_pe，避免高速成长股分母差异导致失真
+        const fairPriceToday = fpa.base_eps * fairPe;
+        const ratio  = fpa.actual_price / fairPriceToday;
+        const pct    = ((ratio - 1) * 100).toFixed(0);
+        const sign   = ratio > 1 ? '+' : '';
+        const rColor = ratio <= 1.0 ? '#3fb950' : ratio < 1.2 ? '#e3b341' : '#f85149';
+        valHtml   = `<span style="font-weight:600;color:var(--text)">${fairPe.toFixed(1)}x</span>`;
+        ratioHtml = `<span style="font-size:.72rem;font-weight:600;color:${rColor}">${sign}${pct}%</span>`;
+        // Annualised total return (price + dividend)
+        const ar = s.annualized_return;
+        if (ar != null) {
+          const arSign  = ar >= 0 ? '+' : '';
+          const arColor = ar >= 15 ? '#3fb950' : ar >= 6 ? '#e3b341' : ar >= 0 ? '#c9d1d9' : '#f85149';
+          retHtml = `<span style="font-size:.78rem;font-weight:700;color:${arColor}">${arSign}${ar.toFixed(1)}%</span>`;
+        } else {
+          retHtml = `<span style="color:rgba(255,255,255,.2)">—</span>`;
+        }
+      }
+      return `
+        <div style="display:grid;grid-template-columns:2.8fr 1.1fr 2fr 1.8fr 2.2fr;
+                    align-items:center;padding:3px 0;
+                    border-bottom:1px solid rgba(255,255,255,.04);gap:3px">
+          <span style="font-size:.7rem;color:var(--muted);white-space:nowrap;overflow:hidden">${s.label}</span>
+          <span style="font-size:.65rem;color:rgba(255,255,255,.4);white-space:nowrap">${gtStr}</span>
+          ${valHtml}
+          ${ratioHtml}
+          ${retHtml}
+        </div>`;
+    }).join('');
+
+    // Implied terminal g: "当前价格隐含年3后永续增速"
+    const itg = fpa.implied_terminal_g;
+    const itgColor = itg == null ? 'var(--muted)'
+                   : itg < 0   ? '#f85149'
+                   : itg < 1.5 ? '#e3b341'
+                   : '#3fb950';
+    const itgHtml = itg != null ? `
+      <div style="display:flex;align-items:center;justify-content:space-between;
+                  margin-top:5px;padding:4px 0 0;border-top:1px dashed rgba(255,255,255,.08)">
+        <span style="font-size:.65rem;color:rgba(255,255,255,.4)">
+          隐含终局增速（年3后永续）
+          <span style="opacity:.55;font-size:.6rem">&nbsp;越高越乐观</span>
+        </span>
+        <span style="font-size:.88rem;font-weight:700;color:${itgColor}">${itg.toFixed(1)}%</span>
+      </div>` : '';
+
+    const cycWarning = c.cyclical_analysis
+      ? `<span style="margin-left:6px;font-size:.62rem;color:#e3b341;font-weight:400">⚠ 周期股慎用</span>`
+      : '';
+    // Warn when DCF base fair PE is substantially above the historical trading median
+    // (market has structurally repriced the stock below what theory suggests)
+    const ps = pe && pe.pe_stats;
+    const baseFairPeVal = fpa.scenarios[1] ? fpa.scenarios[1].fair_pe : null;
+    const histWarn = (ps && ps.median && baseFairPeVal && baseFairPeVal > ps.median * 1.5)
+      ? `<span style="margin-left:6px;font-size:.62rem;color:#e3b341;font-weight:400">⚠ 公允PE远超历史中位 ${ps.median.toFixed(1)}x</span>`
+      : '';
+    pessimisticHtml = `
+      <div style="margin-top:6px;padding:6px 8px;border-radius:6px;
+                  background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08)">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px">
+          <span style="font-size:.7rem;color:var(--muted);font-weight:600">两阶段DCF估值${cycWarning}${histWarn}</span>
+          <span style="font-size:.65rem;color:rgba(255,255,255,.35)">
+            r = ${fpa.rf}% + ${fpa.erp}% = ${fpa.r}%
+          </span>
+        </div>
+        <div style="font-size:.6rem;color:rgba(255,255,255,.22);margin-bottom:5px;line-height:1.5">
+          Stage1：悲观EPS折现（3年）&ensp;|&ensp;Stage2：终局永续增长
+          <br>悲观PE = <b style="color:rgba(255,255,255,.5)">${pesspe.toFixed(1)}x</b>&ensp;vs&ensp;不同终局假设
+          ${(() => {
+            // Historical PE range as a sanity check on fair PE estimates
+            const ps = pe && pe.pe_stats;
+            if (!ps || ps.median == null) return '';
+            const cur = fpa.actual_price / fpa.base_eps;   // trailing PE
+            const pct = ps.percentile;
+            const pctStr = pct != null ? `，当前处于历史 ${pct.toFixed(0)}%分位` : '';
+            return `<br>历史PE：P25 <b style="color:rgba(255,255,255,.4)">${ps.p25 != null ? ps.p25.toFixed(1) : '—'}x</b>&ensp;中位 <b style="color:rgba(255,255,255,.4)">${ps.median.toFixed(1)}x</b>&ensp;P75 <b style="color:rgba(255,255,255,.4)">${ps.p75 != null ? ps.p75.toFixed(1) : '—'}x</b>${pctStr}`;
+          })()}
+        </div>
+        <div style="display:grid;grid-template-columns:2.8fr 1.1fr 2fr 1.8fr 2.2fr;
+                    padding:2px 0 3px;border-bottom:1px solid var(--border);gap:3px;margin-bottom:1px">
+          <span style="font-size:.6rem;color:rgba(255,255,255,.3)">终局假设</span>
+          <span style="font-size:.6rem;color:rgba(255,255,255,.3)">g<sub>t</sub></span>
+          <span style="font-size:.6rem;color:rgba(255,255,255,.3)">PE公允</span>
+          <span style="font-size:.6rem;color:rgba(255,255,255,.3)">溢/折价</span>
+          <span style="font-size:.6rem;color:rgba(255,255,255,.3)">年化回报</span>
+        </div>
+        ${scenRows}
+        ${itgHtml}
+        ${(() => {
+          // Implied discount rate row (g_t fixed at 0%, solve for r)
+          const ir = fpa.implied_r;
+          if (ir == null) return '';
+          const modelR = fpa.r;
+          const impliedErp = ir - fpa.rf;
+          // Color: green = close to model r (market agrees), yellow = somewhat higher,
+          //        red = market demands much more return (structural discount / value trap)
+          const irColor = ir <= modelR * 1.2  ? '#3fb950'
+                        : ir <= modelR * 1.8  ? '#e3b341'
+                        : '#f85149';
+          return `
+          <div style="display:flex;align-items:center;justify-content:space-between;
+                      margin-top:5px;padding:4px 0 0;border-top:1px dashed rgba(255,255,255,.08)">
+            <span style="font-size:.65rem;color:rgba(255,255,255,.4)">
+              市场隐含折现率
+              <span style="opacity:.55;font-size:.6rem">&nbsp;g<sub>t</sub>=0% 时；ERP=${impliedErp.toFixed(1)}%</span>
+            </span>
+            <span style="font-size:.88rem;font-weight:700;color:${irColor}">${ir.toFixed(1)}%</span>
+          </div>`;
+        })()}
+        ${(() => {
+          // "Hold at current PE" baseline: EPS-growth + dividend return with NO PE rerating.
+          // Only meaningful for undervalued stocks (trailing_pe < base fair_pe).
+          // For overvalued stocks, "hold at current PE" would be misleadingly optimistic
+          // because it ignores the inevitable PE compression already captured in 年化回报.
+          const arHold   = fpa.ann_return_hold;
+          const baseFairPe = (fpa.scenarios[1] || fpa.scenarios[0] || {}).fair_pe;
+          if (arHold == null || baseFairPe == null) return '';
+          if (fpa.trailing_pe >= baseFairPe) return ''; // overvalued — skip
+          const arSign  = arHold >= 0 ? '+' : '';
+          const arColor = arHold >= 15 ? '#3fb950' : arHold >= 8 ? '#e3b341' : arHold >= 0 ? '#c9d1d9' : '#f85149';
+          return `
+          <div style="display:flex;align-items:center;justify-content:space-between;
+                      margin-top:5px;padding:4px 0 0;border-top:1px dashed rgba(255,255,255,.08)">
+            <span style="font-size:.65rem;color:rgba(255,255,255,.4)">
+              不含重估资本利得
+              <span style="opacity:.55;font-size:.6rem">&nbsp;PE维持 ${fpa.trailing_pe.toFixed(1)}x 不变</span>
+            </span>
+            <span style="font-size:.88rem;font-weight:700;color:${arColor}">${arSign}${arHold.toFixed(1)}%</span>
+          </div>`;
+        })()}
+        ${(() => {
+          // Dividend yield row — shown separately because P3 (Gordon Growth with full EPS)
+          // already embeds all value; dividends are not added into the capital-gain return.
+          const dy = fpa.div_yield_calc;
+          if (!dy) return '';
+          const capNote = fpa.div_yield_capped
+            ? `<span style="color:#e3b341;margin-left:4px">⚠ TTM ${fpa.div_yield.toFixed(2)}%，含特别分红，取 8% 上限</span>`
+            : '';
+          return `
+          <div style="display:flex;align-items:center;justify-content:space-between;
+                      margin-top:5px;padding:4px 0 0;border-top:1px dashed rgba(255,255,255,.08)">
+            <span style="font-size:.65rem;color:rgba(255,255,255,.4)">
+              另有股息约${capNote}
+            </span>
+            <span style="font-size:.88rem;font-weight:700;color:rgba(255,255,255,.55)">+${dy.toFixed(1)}%/年</span>
+          </div>`;
+        })()}
+        <div style="font-size:.6rem;color:rgba(255,255,255,.22);margin-top:5px;padding-top:4px;
+                    border-top:1px dashed rgba(255,255,255,.08)">
+          年化回报 = (3年目标价 / 现价)^(1/3) − 1（纯资本利得）&ensp;|&ensp;股息另行列示，不重复计入
+        </div>
+      </div>`;
+  }
+
+  const tableHtml = rowsHtml ? `
+    <div style="display:grid;grid-template-columns:2fr 3fr 2fr 2fr;
+                padding:2px 0 4px;border-bottom:1px solid var(--border);gap:4px;margin-bottom:1px">
+      <span style="font-size:.62rem;color:var(--muted)">年份</span>
+      <span style="font-size:.62rem;color:var(--muted)">一致EPS</span>
+      <span style="font-size:.62rem;color:var(--muted)">FwdPE</span>
+      <span style="font-size:.62rem;color:var(--muted)">悲观EPS</span>
+    </div>
+    ${rowsHtml}` : '';
+
+  // ── P/B analysis card (financial stocks only) ──────────────────────────────
+  let pbHtml = '';
+  const pba = c.pb_analysis;
+  if (pba && pba.current_pb != null) {
+    const curPb  = pba.current_pb;
+    const roe    = pba.roe;
+    const roeStr = roe != null ? `${roe.toFixed(1)}%` : '—';
+
+    // Implied r colour
+    const ir = pba.implied_r;
+    const irColor = ir == null ? 'var(--muted)'
+                  : ir < 10 ? '#3fb950'
+                  : ir < 14 ? '#e3b341'
+                  : '#f85149';
+
+    const pbScenRows = pba.scenarios.map(s => {
+      const fair = s.fair_pb;
+      let fairHtml, ratioHtml;
+      if (fair == null) {
+        fairHtml  = `<span style="color:rgba(255,255,255,.25)">—</span>`;
+        ratioHtml = `<span style="color:rgba(255,255,255,.2)">—</span>`;
+      } else {
+        const ratio  = curPb / fair;
+        const pct    = ((ratio - 1) * 100).toFixed(0);
+        const sign   = ratio > 1 ? '+' : '';
+        const rColor = ratio <= 1.0 ? '#3fb950' : ratio < 1.2 ? '#e3b341' : '#f85149';
+        fairHtml  = `<span style="font-weight:600;color:var(--text)">${fair.toFixed(2)}x</span>`;
+        ratioHtml = `<span style="font-size:.72rem;font-weight:600;color:${rColor}">${sign}${pct}%</span>`;
+      }
+      return `
+        <div style="display:grid;grid-template-columns:3fr 1.5fr 2.5fr 2.5fr;
+                    align-items:center;padding:3px 0;
+                    border-bottom:1px solid rgba(255,255,255,.04);gap:4px">
+          <span style="font-size:.7rem;color:var(--muted)">${s.label}</span>
+          <span style="font-size:.68rem;color:rgba(255,255,255,.4)">${s.g_t.toFixed(1)}%</span>
+          ${fairHtml}
+          ${ratioHtml}
+        </div>`;
+    }).join('');
+
+    pbHtml = `
+      <div class="stat-card" style="margin-top:8px;text-align:left;padding:10px 12px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+          <div class="sc-lbl">P/B 估值（金融股）</div>
+          <span style="font-size:.65rem;color:rgba(255,255,255,.35)">
+            r = ${pba.rf}% + ${pba.erp}% = ${pba.r}%
+          </span>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:4px;margin-bottom:6px">
+          <div style="background:rgba(255,255,255,.04);border-radius:5px;padding:5px 7px">
+            <div style="font-size:.6rem;color:var(--muted);margin-bottom:2px">当前 P/B</div>
+            <div style="font-size:.95rem;font-weight:700;color:var(--text)">${curPb.toFixed(2)}x</div>
+          </div>
+          <div style="background:rgba(255,255,255,.04);border-radius:5px;padding:5px 7px">
+            <div style="font-size:.6rem;color:var(--muted);margin-bottom:2px">ROE (近年)</div>
+            <div style="font-size:.95rem;font-weight:700;color:var(--text)">${roeStr}</div>
+          </div>
+          <div style="background:rgba(255,255,255,.04);border-radius:5px;padding:5px 7px">
+            <div style="font-size:.6rem;color:var(--muted);margin-bottom:2px">每股净资产</div>
+            <div style="font-size:.95rem;font-weight:700;color:var(--text)">¥${pba.bv_per_share.toFixed(1)}</div>
+          </div>
+        </div>
+        <div style="font-size:.6rem;color:rgba(255,255,255,.22);margin-bottom:5px">
+          PB公允 = ROE / (r − g<sub>t</sub>)&ensp;|&ensp;金融股 ERP 按 ${pba.erp}% 计
+        </div>
+        <div style="display:grid;grid-template-columns:3fr 1.5fr 2.5fr 2.5fr;
+                    padding:2px 0 3px;border-bottom:1px solid var(--border);gap:4px;margin-bottom:1px">
+          <span style="font-size:.6rem;color:rgba(255,255,255,.3)">终局假设</span>
+          <span style="font-size:.6rem;color:rgba(255,255,255,.3)">g<sub>t</sub></span>
+          <span style="font-size:.6rem;color:rgba(255,255,255,.3)">PB公允</span>
+          <span style="font-size:.6rem;color:rgba(255,255,255,.3)">溢/折价</span>
+        </div>
+        ${pbScenRows}
+        ${ir != null ? `
+        <div style="display:flex;align-items:center;justify-content:space-between;
+                    margin-top:5px;padding:4px 0 0;border-top:1px dashed rgba(255,255,255,.08)">
+          <span style="font-size:.65rem;color:rgba(255,255,255,.4)">
+            市场隐含要求回报率
+            <span style="opacity:.55;font-size:.6rem">&nbsp;(ROE/PB + rf)</span>
+          </span>
+          <span style="font-size:.88rem;font-weight:700;color:${irColor}">${ir.toFixed(1)}%</span>
+        </div>` : ''}
+      </div>`;
+  }
+
+  // ── Cyclical stock: historical mean-PE valuation card ─────────────────────
+  let cyclicalHtml = '';
+  const cya = c.cyclical_analysis;
+  if (cya) {
+    const pePct      = cya.pe_percentile;
+    const pctColor   = pePct == null ? 'var(--muted)'
+                     : pePct < 30  ? '#3fb950'
+                     : pePct < 70  ? '#e3b341' : '#f85149';
+    const curEps     = cya.current_eps;
+    const normEps    = cya.implied_norm_eps;
+    const epsPrem    = cya.eps_premium_pct;
+
+    const cyScenRows = cya.scenarios.map(s => {
+      let fpHtml, vpHtml;
+      if (s.fair_price == null) {
+        fpHtml = `<span style="color:rgba(255,255,255,.25)">—</span>`;
+        vpHtml = `<span style="color:rgba(255,255,255,.2)">—</span>`;
+      } else {
+        const vp = s.vs_price ?? 0;
+        const vpSign  = vp >= 0 ? '+' : '';
+        const vpColor = vp >= 0 ? '#3fb950' : '#f85149';
+        fpHtml = `<span style="font-weight:600;color:var(--text)">¥${s.fair_price.toFixed(2)}</span>`;
+        vpHtml = `<span style="font-size:.72rem;font-weight:600;color:${vpColor}">${vpSign}${vp.toFixed(0)}%</span>`;
+      }
+      return `
+        <div style="display:grid;grid-template-columns:3fr 2fr 2.5fr 2.5fr;
+                    align-items:center;padding:3px 0;
+                    border-bottom:1px solid rgba(255,255,255,.04);gap:4px">
+          <span style="font-size:.7rem;color:var(--muted)">${s.label}</span>
+          <span style="font-size:.68rem;color:rgba(255,255,255,.4)">${s.pe != null ? s.pe.toFixed(1) + 'x' : '—'}</span>
+          ${fpHtml}
+          ${vpHtml}
+        </div>`;
+    }).join('');
+
+    // Implied normalised EPS interpretation
+    let normEpsHtml = '';
+    if (normEps != null && epsPrem != null) {
+      const premColor = epsPrem > 50 ? '#f85149' : epsPrem > 15 ? '#e3b341' : '#3fb950';
+      const premLabel = epsPrem > 50 ? '当前EPS可能处于周期高点，市场隐含EPS将大幅下滑'
+                      : epsPrem > 15 ? '当前EPS略高于正常水平'
+                      : epsPrem > -15 ? '当前EPS接近历史正常水平'
+                      : '当前EPS低于正常水平，可能处于周期低谷';
+      const premSign = epsPrem >= 0 ? '+' : '';
+      normEpsHtml = `
+        <div style="margin-top:5px;padding:4px 0 0;border-top:1px dashed rgba(255,255,255,.08)">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px">
+            <span style="font-size:.65rem;color:rgba(255,255,255,.4)">
+              隐含归一化EPS &nbsp;<span style="opacity:.6;font-size:.6rem">(现价 ÷ 历史中位PE)</span>
+            </span>
+            <span style="font-size:.82rem;font-weight:600;color:var(--text)">¥${normEps.toFixed(2)}</span>
+          </div>
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <span style="font-size:.6rem;color:rgba(255,255,255,.3)">${premLabel}</span>
+            <span style="font-size:.72rem;font-weight:600;color:${premColor}">${premSign}${epsPrem.toFixed(0)}%</span>
+          </div>
+        </div>`;
+    }
+
+    cyclicalHtml = `
+      <div class="stat-card" style="margin-top:8px;text-align:left;padding:10px 12px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+          <div class="sc-lbl">历史PE均值估值
+            <span style="margin-left:5px;font-size:.7rem;color:#e3b341;font-weight:400">⚠ 周期股</span>
+          </div>
+          <span style="font-size:.65rem;color:rgba(255,255,255,.35)">${cya.industry}</span>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:4px;margin-bottom:6px">
+          <div style="background:rgba(255,255,255,.04);border-radius:5px;padding:5px 7px">
+            <div style="font-size:.6rem;color:var(--muted);margin-bottom:2px">当前PE</div>
+            <div style="font-size:.95rem;font-weight:700;color:var(--text)">
+              ${cya.current_pe != null ? cya.current_pe.toFixed(1) + 'x' : '—'}
+            </div>
+          </div>
+          <div style="background:rgba(255,255,255,.04);border-radius:5px;padding:5px 7px">
+            <div style="font-size:.6rem;color:var(--muted);margin-bottom:2px">历史分位</div>
+            <div style="font-size:.95rem;font-weight:700;color:${pctColor}">
+              ${pePct != null ? pePct.toFixed(0) + '%' : '—'}
+            </div>
+          </div>
+          <div style="background:rgba(255,255,255,.04);border-radius:5px;padding:5px 7px">
+            <div style="font-size:.6rem;color:var(--muted);margin-bottom:2px">历史中位PE</div>
+            <div style="font-size:.95rem;font-weight:700;color:var(--text)">
+              ${cya.pe_median != null ? cya.pe_median.toFixed(1) + 'x' : '—'}
+            </div>
+          </div>
+        </div>
+        <div style="font-size:.6rem;color:rgba(255,255,255,.22);margin-bottom:5px">
+          公允价 = 当前EPS（¥${curEps.toFixed(2)}）× 历史PE分位 &ensp;|&ensp;DCF在周期股上可能因EPS峰/谷而失真
+        </div>
+        <div style="display:grid;grid-template-columns:3fr 2fr 2.5fr 2.5fr;
+                    padding:2px 0 3px;border-bottom:1px solid var(--border);gap:4px;margin-bottom:1px">
+          <span style="font-size:.6rem;color:rgba(255,255,255,.3)">估值场景</span>
+          <span style="font-size:.6rem;color:rgba(255,255,255,.3)">历史PE</span>
+          <span style="font-size:.6rem;color:rgba(255,255,255,.3)">公允价</span>
+          <span style="font-size:.6rem;color:rgba(255,255,255,.3)">vs现价</span>
+        </div>
+        ${cyScenRows}
+        ${normEpsHtml}
+      </div>`;
+  }
+
+  return `
+    <div class="stat-card" style="margin-top:8px;text-align:left;padding:10px 12px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px">
+        <div class="sc-lbl">分析师一致预期</div>
+        ${orgHtml}
+      </div>
+      ${ratingHtml}${targetHtml}${tableHtml}${pessimisticHtml}
+    </div>
+    ${pbHtml}
+    ${cyclicalHtml}`;
+}
+
+// ── helper: PE stats HTML block ───────────────────────────────────────────────
+function buildPeHtml(pe) {
+  if (!pe || !pe.pe_stats) return '';
+  const ps  = pe.pe_stats;
+  const d10 = pe.decomposition;
+  const d5  = pe.decomposition_5y;
+
+  const pctColor = ps.percentile < 30 ? '#3fb950'
+                 : ps.percentile < 70 ? '#e3b341'
+                 : '#f85149';
+  const pctLabel = ps.percentile < 30 ? '历史偏低'
+                 : ps.percentile < 70 ? '历史适中'
+                 : '历史偏高';
+  const dotLeft = Math.min(Math.max(ps.percentile, 2), 97);
+
+  // Build one decomp block (for a single period)
+  function decompBlock(d) {
+    if (!d) return `<div style="color:var(--muted);font-size:.7rem;text-align:center;padding:6px 0">暂无数据</div>`;
+    const totalColor = d.hfq_total_return >= 0 ? 'var(--green)' : 'var(--red)';
+    const totalSign  = d.hfq_total_return >= 0 ? '+' : '';
+    return `
+      <div style="font-size:.63rem;color:var(--muted);margin-bottom:5px">
+        ${d.period_start.slice(0,7)} → ${d.period_end.slice(0,7)}
+        &nbsp;PE ${d.pe_start}x→${d.pe_end}x
+      </div>
+      ${buildContribBar('EPS+股息', d.eps_div_contrib_pct, d.eps_div_return, '#3fb950')}
+      ${buildContribBar('PE变化',   d.pe_contrib_pct,      d.pe_return,      '#d2a8ff')}
+      <div style="text-align:right;font-size:.66rem;margin-top:3px">
+        总涨幅&nbsp;<span style="color:${totalColor};font-weight:600">${totalSign}${d.hfq_total_return.toFixed(1)}%</span>
+      </div>`;
+  }
+
+  const decompHtml = (d10 || d5) ? `
+    <div class="stat-card" style="margin-bottom:0;text-align:left;padding:10px 12px">
+      <div class="sc-lbl" style="text-align:center;margin-bottom:8px">收益来源拆解（后复权）</div>
+      <!-- 10yr section -->
+      <div style="font-size:.7rem;color:#f78166;font-weight:600;padding:2px 0 4px;
+                  border-bottom:1px solid rgba(247,129,102,.2);margin-bottom:6px">— 10 年</div>
+      ${decompBlock(d10)}
+      <!-- 5yr section -->
+      <div style="font-size:.7rem;color:#3fb950;font-weight:600;padding:2px 0 4px;
+                  border-top:1px solid var(--border);border-bottom:1px solid rgba(63,185,80,.2);
+                  margin-top:8px;margin-bottom:6px">-- 5 年</div>
+      ${decompBlock(d5)}
+    </div>` : '';
+
+  // Loss-period annotation line
+  const lossRanges = pe.loss_ranges || [];
+  const lossHtml = lossRanges.length > 0 ? `
+    <div style="display:flex;align-items:center;gap:6px;font-size:.68rem;color:var(--muted);margin-bottom:6px">
+      <span style="display:inline-block;width:12px;height:10px;background:rgba(248,81,73,0.35);border-radius:2px;flex-shrink:0"></span>
+      亏损期 ${lossRanges.length} 段（PE&lt;0，图表红色区域）
+    </div>` : '';
+
+  return `
+    <div style="border-top:1px solid var(--border);padding-top:10px;margin-top:6px">
+      <div style="font-size:.72rem;color:var(--muted);margin-bottom:8px;font-weight:600">📈 PE（TTM）估值分析</div>
+      ${lossHtml}
+
+      <div class="stat-card" style="margin-bottom:8px;text-align:left;padding:10px 12px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+          <div style="text-align:center">
+            <div style="font-size:.68rem;color:var(--muted);margin-bottom:3px">当前 PE</div>
+            <div style="font-size:1.4rem;font-weight:700;color:${pctColor}">${ps.current.toFixed(1)}<span style="font-size:.85rem">x</span></div>
+          </div>
+          <div style="text-align:center">
+            <div style="font-size:.68rem;color:var(--muted);margin-bottom:3px">历史分位</div>
+            <div style="font-size:1.2rem;font-weight:700;color:${pctColor}">${ps.percentile.toFixed(0)}%</div>
+            <div style="font-size:.65rem;color:var(--muted)">${pctLabel}</div>
+          </div>
+        </div>
+        <div style="height:5px;background:linear-gradient(90deg,#3fb950,#e3b341,#f85149);border-radius:3px;position:relative;margin-bottom:4px">
+          <div style="position:absolute;top:-4px;width:11px;height:11px;background:white;border-radius:50%;left:calc(${dotLeft}% - 5px);border:2px solid #0d1117;box-shadow:0 0 0 1.5px ${pctColor}"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:.64rem;color:var(--muted)">
+          <span>P10 ${ps.p10}x</span><span>中位 ${ps.median}x</span><span>P90 ${ps.p90}x</span>
+        </div>
+      </div>
+
+      ${decompHtml}
+      ${buildConsensusHtml(pe)}
+    </div>`;
+}
+
+// ── helper: contribution bar ─────────────────────────────────────────────────
+function buildContribBar(label, pct, retPct, color) {
+  const barW = Math.min(Math.abs(pct), 100);
+  const sign = retPct >= 0 ? '+' : '';
+  const rCls = retPct >= 0 ? 'pos' : 'neg';
+  const pCls = pct    >= 0 ? 'pos' : 'neg';
+  return `<div style="margin-bottom:7px">
+    <div style="display:flex;justify-content:space-between;font-size:.72rem;margin-bottom:3px">
+      <span style="color:${color};font-weight:600">${label}</span>
+      <span>
+        <span class="${rCls}">${sign}${retPct.toFixed(1)}%</span>
+        <span style="color:var(--muted);font-size:.65rem;margin-left:5px">贡献 <span class="${pCls}">${pct.toFixed(1)}%</span></span>
+      </span>
+    </div>
+    <div style="height:5px;background:var(--border);border-radius:3px;overflow:hidden">
+      <div style="width:${barW}%;height:100%;background:${color};opacity:.75;border-radius:3px"></div>
+    </div>
+  </div>`;
+}
+
+// ── stats panel ──────────────────────────────────────────────────────────────
+function drawStats(s10, s5, bs, peData, code) {
+  const s3  = (peData && peData.stats_3y)      || null;
+  const bs3 = (peData && peData.band_stats_3y) || null;
+
+  // Build ordered list of selected windows
+  const orderedYrs = ['10y', '5y', '3y'].filter(y => _selectedYears.has(y));
+  const ncols = Math.max(orderedYrs.length, 1);
+  const gc    = Array(ncols).fill('1fr').join(' ');
+
+  const statsOf = { '10y': s10,  '5y': s5,   '3y': s3  };
+  const bsOf    = { '10y': null, '5y': bs,    '3y': bs3 };
+  const labelOf = { '10y': '— 10年', '5y': '— 5年', '3y': '·· 3年' };
+  const colorOf = { '10y': '#f78166', '5y': '#3fb950', '3y': '#e3b341' };
+  const bgOf    = { '10y': 'rgba(247,129,102,.08)', '5y': 'rgba(63,185,80,.08)', '3y': 'rgba(227,179,65,.08)' };
+
+  // Responsive font sizes
+  const vSz  = ncols > 2 ? '1rem'   : '1.2rem';
+  const r2Sz = ncols > 2 ? '.88rem' : '1.1rem';
+  const tdSz = ncols > 2 ? '.82rem' : '1rem';
+
+  function fmtGrowth(g) {
+    if (g == null) return '<span style="color:var(--muted)">—</span>';
+    const cls = g >= 0 ? 'pos' : 'neg', sign = g >= 0 ? '+' : '';
+    return `<span class="${cls}">${sign}${g.toFixed(2)}%</span>`;
+  }
+  function fmtTotal(s) {
+    if (!s) return '<span style="color:var(--muted)">—</span>';
+    const pct  = ((s.end_price - s.start_price) / s.start_price * 100).toFixed(1);
+    const cls  = +pct >= 0 ? 'pos' : 'neg', sign = +pct >= 0 ? '+' : '';
+    return `<span class="${cls}">${sign}${pct}%</span>`;
+  }
+
+  const headerRow  = orderedYrs.map(y =>
+    `<div style="font-size:.72rem;color:${colorOf[y]};text-align:center;font-weight:600;padding:4px 0;background:${bgOf[y]};border-radius:4px">${labelOf[y]}</div>`
+  ).join('');
+
+  const growthRow = orderedYrs.map(y => {
+    const s = statsOf[y];
+    return `<div style="font-size:${vSz};font-weight:700">${fmtGrowth(s ? s.annual_growth : null)}</div>`;
+  }).join('');
+
+  const r2Row = orderedYrs.map(y => {
+    const s = statsOf[y];
+    return `<div style="font-size:${r2Sz};color:var(--accent)">${s ? (s.r_squared*100).toFixed(1)+'%' : '—'}</div>`;
+  }).join('');
+
+  const totalRow = orderedYrs.map(y =>
+    `<div style="font-size:${r2Sz};font-weight:600">${fmtTotal(statsOf[y])}</div>`
+  ).join('');
+
+  const daysRow = orderedYrs.map(y => {
+    const s = statsOf[y];
+    return `<div style="font-size:${tdSz}">${s ? s.total_days : '—'}</div>`;
+  }).join('');
+
+  // ── Band stats: one block per selected window that has band data ────────────
+  const bandYrs  = orderedYrs.filter(y => bsOf[y]);
+  const bandTitleOf = { '5y': '5年', '3y': '3年' };
+  let bandHtml = '';
+  if (bandYrs.length > 0) {
+    const blocks = bandYrs.map((y, idx) => {
+      const bsw = bsOf[y];
+      const pos      = bsw.channel_pos;
+      const barW     = Math.min(Math.max(pos, 0), 100);
+      const posColor = pos < 25  ? '#f85149' : pos < 75 ? '#58a6ff' : pos <= 100 ? '#3fb950' : '#e3b341';
+      const posLabel = pos < 25  ? '偏低（接近止损）' : pos < 75 ? '通道中部' : pos <= 100 ? '偏高（接近止盈）' : '超出止盈线';
+      const slSign   = bsw.stop_loss_pct   >= 0 ? '+' : '';
+      const tpSign   = bsw.take_profit_pct >= 0 ? '+' : '';
+      const mb       = idx < bandYrs.length - 1 ? '12' : '8';
+      return `
+        <div style="font-size:.68rem;color:${colorOf[y]};font-weight:600;margin-bottom:4px">${bandTitleOf[y] || y} 通道</div>
+        <div class="stat-card" style="margin-bottom:6px;text-align:left;padding:8px 10px">
+          <div class="sc-lbl" style="margin-bottom:5px;text-align:center;font-size:.67rem">通道位置</div>
+          <div style="height:5px;background:var(--border);border-radius:3px;overflow:hidden;margin-bottom:5px">
+            <div style="width:${barW}%;height:100%;background:${posColor};border-radius:3px"></div>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <span style="font-size:1.05rem;font-weight:700;color:${posColor}">${pos.toFixed(1)}%</span>
+            <span style="font-size:.62rem;color:var(--muted);text-align:right">${posLabel}</span>
+          </div>
+        </div>
+        <div class="stat-card" style="margin-bottom:6px">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;text-align:center">
+            <div>
+              <div style="font-size:.65rem;color:var(--muted);margin-bottom:2px">距止损线</div>
+              <div style="font-size:.95rem;font-weight:700;color:var(--red)">${slSign}${bsw.stop_loss_pct.toFixed(1)}%</div>
+              <div style="font-size:.62rem;color:var(--muted);margin-top:1px">${bsw.lower_band_price.toFixed(2)}</div>
+            </div>
+            <div>
+              <div style="font-size:.65rem;color:var(--muted);margin-bottom:2px">距止盈线</div>
+              <div style="font-size:.95rem;font-weight:700;color:var(--green)">${tpSign}${bsw.take_profit_pct.toFixed(1)}%</div>
+              <div style="font-size:.62rem;color:var(--muted);margin-top:1px">${bsw.upper_band_price.toFixed(2)}</div>
+            </div>
+          </div>
+        </div>
+        <div class="stat-card" style="margin-bottom:${mb}px">
+          <div class="sc-lbl" style="margin-bottom:3px;font-size:.65rem">${bandTitleOf[y]||y}最大回撤</div>
+          <div style="font-size:1.05rem;font-weight:700;color:var(--red)">${bsw.max_drawdown.toFixed(1)}%</div>
+        </div>`;
+    }).join('');
+
+    bandHtml = `
+      <div style="border-top:1px solid var(--border);padding-top:10px;margin-top:6px">
+        <div style="font-size:.72rem;color:var(--muted);margin-bottom:8px;font-weight:600;letter-spacing:.04em">⚖ 止盈止损通道</div>
+        ${blocks}
+        <p class="note" style="margin-bottom:0">通道基于对数残差 P10/P90。止损：仅10%时间低于此线；止盈：仅10%时间高于此线。</p>
+      </div>`;
+  }
+
+  document.getElementById('statsPanel').innerHTML = `
+    <div style="display:grid;grid-template-columns:${gc};gap:6px;margin-bottom:10px">
+      ${headerRow}
+    </div>
+
+    <div class="stat-card" style="margin-bottom:8px">
+      <div class="sc-lbl" style="margin-bottom:6px">年化增长率</div>
+      <div style="display:grid;grid-template-columns:${gc};gap:6px;text-align:center">${growthRow}</div>
+    </div>
+
+    <div class="stat-card" style="margin-bottom:8px">
+      <div class="sc-lbl" style="margin-bottom:6px">R² 拟合优度</div>
+      <div style="display:grid;grid-template-columns:${gc};gap:6px;text-align:center">${r2Row}</div>
+    </div>
+
+    <div class="stat-card" style="margin-bottom:8px">
+      <div class="sc-lbl" style="margin-bottom:6px">区间总涨幅</div>
+      <div style="display:grid;grid-template-columns:${gc};gap:6px;text-align:center">${totalRow}</div>
+    </div>
+
+    <div class="stat-card" style="margin-bottom:10px">
+      <div class="sc-lbl" style="margin-bottom:6px">交易日数</div>
+      <div style="display:grid;grid-template-columns:${gc};gap:6px;text-align:center">${daysRow}</div>
+    </div>
+
+    ${bandHtml}
+
+    ${buildPeHtml(peData)}
+
+    <p class="note" style="margin-top:10px">
+      趋势线延伸至全图；绿色虚线 = 5年起点，黄色虚线 = 3年起点。
+    </p>
+    <p class="note" style="margin-bottom:0">
+      数据来源：腾讯行情 后复权 · BaoStock PE(TTM)
+    </p>`;
+}
+
+// ── AI card (rendered below the chart) ───────────────────────────────────────
+function drawAiCard(code) {
+  const area = document.getElementById('aiAnalysisArea');
+  if (!area) return;
+  area.innerHTML = `
+    <div style="border-top:1px solid var(--border);padding:12px 2px 4px;margin-top:4px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <span style="font-size:.85rem;color:var(--muted);font-weight:600">🤖 AI 智能分析</span>
+        <button id="btnAiAnalyze"
+                onclick="runAiAnalysis('${code}')"
+                style="background:linear-gradient(135deg,#1f6feb,#388bfd);color:#fff;
+                       border:none;border-radius:6px;padding:5px 14px;
+                       font-size:.8rem;font-weight:600;cursor:pointer;
+                       transition:opacity .15s">
+          生成分析
+        </button>
+      </div>
+      <div id="aiAnalysisContent"
+           style="display:none;font-size:.9rem;line-height:1.7;color:var(--text);
+                  background:rgba(88,166,255,.04);border:1px solid rgba(88,166,255,.15);
+                  border-radius:6px;padding:16px 18px;
+                  max-height:360px;overflow-y:auto;">
+      </div>
+      <div id="phaseAnalysisContent"
+           style="display:none;font-size:.78rem;color:var(--muted);padding:4px 2px;margin-top:4px">
+      </div>
+    </div>`;
+}
+
+// ── AI analysis ──────────────────────────────────────────────────────────────
+async function runAiAnalysis(code) {
+  const content = document.getElementById('aiAnalysisContent');
+  const btn     = document.getElementById('btnAiAnalyze');
+  if (!content || !btn) return;
+
+  btn.disabled      = true;
+  btn.textContent   = '分析中…';
+  btn.style.opacity = '.6';
+  content.style.display = 'block';
+
+  // Scroll chart-area so the AI section (header + content) is visible
+  const chartArea = document.querySelector('.chart-area');
+  const aiArea    = document.getElementById('aiAnalysisArea');
+  if (chartArea && aiArea) {
+    chartArea.scrollTo({ top: aiArea.offsetTop - 8, behavior: 'smooth' });
+  }
+  content.innerHTML = `
+    <div id="aiStatus" style="display:flex;align-items:center;gap:7px;
+         color:var(--muted);font-size:.8rem;padding:4px 0;margin-bottom:4px">
+      <div class="spin" style="width:14px;height:14px;border-width:2px;flex-shrink:0"></div>
+      <span id="aiStatusText">AI 分析中…</span>
+    </div>
+    <div id="aiText"></div>`;
+
+  function setStatus(msg) {
+    const el = document.getElementById('aiStatus');
+    const st = document.getElementById('aiStatusText');
+    if (!el || !st) return;
+    if (msg) { el.style.display = 'flex'; st.textContent = msg; }
+    else      { el.style.display = 'none'; }
+  }
+
+  // ── typing-animation queue ────────────────────────────────────────────────
+  // Gemini returns large chunks; we animate them char-by-char at ~18ms/char.
+  const myGen     = _analysisGen;   // snapshot: if _analysisGen changes, we're stale
+  let fullText    = '';
+  let displayText = '';
+  let typeQueue   = '';
+  let isTyping    = false;
+
+  function isStale() { return _analysisGen !== myGen; }
+
+  async function drainQueue() {
+    if (isTyping) return;
+    isTyping = true;
+    while (typeQueue.length > 0) {
+      if (isStale()) { isTyping = false; return; }   // new stock opened — stop immediately
+      displayText += typeQueue[0];
+      typeQueue    = typeQueue.slice(1);
+      const te = document.getElementById('aiText');
+      if (te) { te.innerHTML = renderMd(displayText); content.scrollTop = content.scrollHeight; }
+      await new Promise(r => setTimeout(r, 18));
+    }
+    isTyping = false;
+  }
+
+  let hadError = false;
+  try {
+    const resp = await fetch(`/api/analyze/${code}`);
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({error: resp.statusText}));
+      throw new Error(err.error || resp.statusText);
+    }
+
+    const reader  = resp.body.getReader();
+    const decoder = new TextDecoder();
+
+    outer: while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const raw = decoder.decode(value, { stream: true });
+      for (const line of raw.split('\n')) {
+        if (!line.startsWith('data: ')) continue;
+        let obj;
+        try { obj = JSON.parse(line.slice(6)); } catch { continue; }
+        if (obj.error)  { throw new Error(obj.error); }
+        if (obj.status !== undefined) { setStatus(obj.status); }
+        if (obj.text) {
+          if (!fullText) setStatus('');  // hide spinner on first text
+          fullText   += obj.text;
+          typeQueue  += obj.text;
+          drainQueue();                  // fire-and-forget typing animation
+        }
+        if (obj.done) break outer;
+      }
+    }
+
+    // Flush remaining queue instantly on completion
+    if (!isStale()) {
+      displayText = fullText;
+      typeQueue   = '';
+      const te = document.getElementById('aiText');
+      if (te) te.innerHTML = renderMd(displayText);
+    }
+
+  } catch (e) {
+    if (!isStale()) {
+      content.innerHTML = `<div style="color:var(--red);font-size:.8rem">⚠ ${e.message}</div>`;
+    }
+    hadError = true;
+  }
+
+  if (!isStale()) {
+    btn.disabled      = false;
+    btn.style.opacity = '1';
+    btn.textContent   = hadError ? '重试' : '重新分析';
+  }
+}
+
+// ── Phase colour palette ──────────────────────────────────────────────────────
+const PHASE_PALETTE = [
+  { solid: '#58a6ff', fill: 'rgba(88,166,255,0.08)'   },
+  { solid: '#f78166', fill: 'rgba(247,129,102,0.08)'  },
+  { solid: '#3fb950', fill: 'rgba(63,185,80,0.08)'    },
+  { solid: '#d2a8ff', fill: 'rgba(210,168,255,0.08)'  },
+  { solid: '#ffa657', fill: 'rgba(255,166,87,0.08)'   },
+];
+
+// ── Parse AI phase response into structured array ────────────────────────────
+// Tries JSON first (new prompt format), falls back to Markdown regex.
+function parsePhaseText(text) {
+  // ── 1. JSON path (preferred) ──────────────────────────────────────────────
+  // Strip markdown code fences the AI sometimes adds despite instructions
+  const stripped = text.replace(/```(?:json)?\s*/gi, '').replace(/```/g, '').trim();
+
+  const arrayStart = stripped.indexOf('[');
+  if (arrayStart >= 0) {
+    let raw = stripped.slice(arrayStart).replace(/,\s*([}\]])/g, '$1');
+
+    // The AI may return truncated JSON if it hit the token limit.
+    // Try progressively more complete suffixes until one parses.
+    const closers = ['', ']', '}]', '"}]',
+                     '","ending":""}]', '","process":"","ending":""}]'];
+    for (const suffix of closers) {
+      try {
+        const arr = JSON.parse(raw + suffix);
+        if (Array.isArray(arr) && arr.length > 0) {
+          return arr.map(item => ({
+            num:       Number(item.num) || 0,
+            timeRange: `${item.start || '?'} 至 ${item.end || '?'}`,
+            title:     String(item.title   || ''),
+            startDate: item.start || null,
+            endDate:   item.end   || null,
+            bullets: [
+              { label: '起因', text: String(item.reason  || '') },
+              { label: '经过', text: String(item.process || '') },
+              { label: '终结', text: String(item.ending  || '') },
+            ].filter(b => b.text),
+          })).filter(p => p.num > 0 && p.startDate);
+        }
+      } catch (_) {}
+    }
+  }
+
+  // ── 2. Markdown regex path (fallback) ────────────────────────────────────
+  const phases = [];
+  const cnMap  = { '一':1,'二':2,'三':3,'四':4,'五':5 };
+  // Split before each phase header (both **阶段N** and plain 阶段N)
+  const blocks = text.split(/(?=\*{0,2}阶段[\s\d一二三四五])/);
+  for (const block of blocks) {
+    if (!block.trim()) continue;
+    // Phase number (arabic or chinese)
+    const nm = block.match(/阶段\s*(\d+)|阶段\s*([一二三四五])/);
+    if (!nm) continue;
+    const num = nm[1] ? parseInt(nm[1]) : (cnMap[nm[2]] || 0);
+    if (!num) continue;
+    // Dates in header / first 160 chars
+    const header = block.slice(0, 160);
+    const dates  = [];
+    const dr = /(\d{4})[年\-](\d{1,2})(?:月)?/g;
+    let dm;
+    while ((dm = dr.exec(header)) !== null)
+      dates.push(`${dm[1]}-${dm[2].padStart(2,'0')}`);
+    // Time range string
+    const trm = header.match(/[（(]([^）)]+)[）)]/) || header.match(/至[^\n]+/);
+    const timeRange = trm ? trm[1].replace(/[*]/g,'').trim()
+                          : (dates.length >= 2 ? `${dates[0]} 至 ${dates[1]}` : (dates[0] || ''));
+    // Title
+    const titm = block.match(/[）)][^*\n]*[：:]\s*([^\n*]+)/) ||
+                 block.match(/\*\*([^*（(][^\n*]{2,30})\*\*/);
+    const title = titm ? titm[1].replace(/\*+/g,'').trim() : '';
+    // Bullets (起因/经过/终结)
+    const bullets = [];
+    const br = /[-–•]\s*\*{0,2}([^*:：\n]{1,8})\*{0,2}[：:]\s*(.+?)(?=\n[-–•]|\n\n|\n\*{0,2}阶段|$)/gs;
+    let bm;
+    while ((bm = br.exec(block)) !== null)
+      bullets.push({ label: bm[1].trim(), text: bm[2].replace(/\n/g,' ').trim() });
+    phases.push({ num, timeRange, title, startDate: dates[0]||null, endDate: dates[1]||null, bullets });
+  }
+  return phases;
+}
+
+// Mid-point between two date strings (YYYY-MM or YYYY-MM-DD)
+function _midDate(d1, d2) {
+  const t1 = new Date(d1).getTime();
+  const t2 = new Date(d2).getTime();
+  return new Date((t1 + t2) / 2).toISOString().slice(0, 10);
+}
+
+// ── Draw phase bands + labels on the Plotly chart ────────────────────────────
+function drawPhaseBands(phases) {
+  const cd = document.getElementById('chartDiv');
+  if (!cd || !cd.layout) return;
+  // Keep non-phase shapes / annotations
+  const shapes = (cd.layout.shapes      || []).filter(s => !s._isPhase);
+  const anns   = (cd.layout.annotations || []).filter(a => !a._isPhase);
+  const today  = new Date().toISOString().slice(0, 10);
+
+  phases.forEach((phase, i) => {
+    if (!phase.startDate) return;
+    const { solid, fill } = PHASE_PALETTE[i % PHASE_PALETTE.length];
+    const x0 = phase.startDate + '-01';
+    const x1 = phase.endDate   ? phase.endDate + '-28' : today;
+
+    // Background band (below all traces)
+    shapes.push({
+      _isPhase: true, type: 'rect', xref: 'x', yref: 'paper',
+      x0, x1, y0: 0, y1: 1,
+      fillcolor: fill, line: { width: 0 }, layer: 'below',
+    });
+    // Vertical divider at phase start (skip first)
+    if (i > 0) shapes.push({
+      _isPhase: true, type: 'line', xref: 'x', yref: 'paper',
+      x0, x1: x0, y0: 0, y1: 1,
+      line: { color: solid, width: 1, dash: 'dot' },
+    });
+    // Numbered label at top-centre of band
+    anns.push({
+      _isPhase: true, _phaseIdx: i,
+      xref: 'x', yref: 'paper',
+      x: _midDate(x0, x1), y: 0.99,
+      text: `<b>阶段${phase.num}</b>`,
+      showarrow: false,
+      font: { size: 11, color: solid },
+      xanchor: 'center', yanchor: 'top',
+      bgcolor: 'rgba(13,17,23,0.82)',
+      borderpad: 3, bordercolor: solid + '77', borderwidth: 1,
+      captureevents: true,
+    });
+  });
+
+  Plotly.relayout(cd, { shapes, annotations: anns });
+}
+
+// ── Floating phase detail popup ───────────────────────────────────────────────
+function showPhasePopup(phase, color, evt) {
+  document.getElementById('phasePopup')?.remove();
+  const px = Math.min((evt.pageX || evt.clientX || 400) + 14, window.innerWidth  - 310);
+  const py = Math.max((evt.pageY || evt.clientY || 300) - 16, 8);
+
+  const bulletHtml = (phase.bullets || []).map(b => `
+    <div style="margin-bottom:9px">
+      <div style="color:${color};font-weight:600;font-size:.81rem">▸ ${b.label}</div>
+      <div style="margin-top:2px;color:#c9d1d9;font-size:.82rem;line-height:1.55">${b.text}</div>
+    </div>`).join('');
+
+  const pop = document.createElement('div');
+  pop.id = 'phasePopup';
+  pop.style.cssText = `
+    position:fixed;z-index:9999;left:${px}px;top:${py}px;
+    width:288px;max-height:54vh;overflow-y:auto;
+    background:#161b22;border:1px solid ${color}55;border-radius:10px;
+    padding:14px 16px;box-shadow:0 8px 32px rgba(0,0,0,.65);
+    font-size:.84rem;line-height:1.5;color:#e6edf3;`;
+  pop.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
+      <div>
+        <span style="color:${color};font-weight:700">阶段${phase.num}</span>
+        <span style="color:#8b949e;font-size:.76rem;margin-left:6px">${phase.timeRange}</span>
+        ${phase.title ? `<div style="font-weight:600;margin-top:3px">${phase.title}</div>` : ''}
+      </div>
+      <span style="cursor:pointer;color:#8b949e;font-size:1.2rem;padding:0 3px;flex-shrink:0;margin-left:8px"
+            onclick="document.getElementById('phasePopup')?.remove()">×</span>
+    </div>
+    ${bulletHtml || '<div style="color:#8b949e">暂无详情</div>'}`;
+  document.body.appendChild(pop);
+
+  setTimeout(() => {
+    function outside(e) {
+      if (!document.getElementById('phasePopup')?.contains(e.target)) {
+        document.getElementById('phasePopup')?.remove();
+        document.removeEventListener('click', outside);
+      }
+    }
+    document.addEventListener('click', outside);
+  }, 200);
+}
+
+// ── Apply parsed phases → chart bands + hover tooltips ───────────────────────
+function applyPhaseAnnotations(text) {
+  const phases  = parsePhaseText(text);
+  const content = document.getElementById('phaseAnalysisContent');
+
+  if (phases.length === 0) {
+    if (content) { content.style.display = 'block'; content.innerHTML = `<span style="color:var(--red)">⚠ 无法解析阶段</span>`; }
+    return;
+  }
+
+  drawPhaseBands(phases);
+  setupPhaseHover(phases);
+
+  if (content) {
+    content.style.display = 'block';
+    content.innerHTML = `📊 已标注 ${phases.length} 个阶段 · 鼠标悬停查看详情`;
+  }
+}
+
+// ── Phase hover tooltip ───────────────────────────────────────────────────────
+function setupPhaseHover(phases) {
+  const cd = document.getElementById('chartDiv');
+  if (!cd) return;
+
+  // Tear down previous listeners
+  if (cd._phaseHoverFns) {
+    cd.removeEventListener('mousemove', cd._phaseHoverFns.move);
+    cd.removeEventListener('mouseleave', cd._phaseHoverFns.leave);
+  }
+  try { cd.removeAllListeners('plotly_hover');   } catch {}
+  try { cd.removeAllListeners('plotly_unhover'); } catch {}
+
+  let _activePNum = null;
+  let _hideTimer  = null;
+  let _mouseX = 0, _mouseY = 0;
+
+  // ── track mouse position so we can place the tooltip ─────────────────────
+  function onMove(e) { _mouseX = e.clientX; _mouseY = e.clientY; }
+
+  function scheduleHide() {
+    clearTimeout(_hideTimer);
+    _hideTimer = setTimeout(() => {
+      document.getElementById('phaseHoverTip')?.remove();
+      _activePNum = null;
+    }, 150);
+  }
+
+  // ── Plotly hover event delivers the exact x-date of the hovered point ────
+  cd.on('plotly_hover', function(data) {
+    clearTimeout(_hideTimer);
+    const pt = data?.points?.[0];
+    if (!pt) return;
+
+    // pt.x is the date string of the hovered data point
+    const ym = String(pt.x).slice(0, 7);   // "YYYY-MM"
+
+    const phase = phases.find(p =>
+      ym >= (p.startDate || '0000-01') && ym <= (p.endDate || '2099-12')
+    );
+    if (!phase) { scheduleHide(); return; }
+
+    const i     = phases.indexOf(phase);
+    const color = PHASE_PALETTE[i % PHASE_PALETTE.length].solid;
+
+    if (_activePNum !== phase.num) {
+      _activePNum = phase.num;
+      document.getElementById('phaseHoverTip')?.remove();
+      document.body.appendChild(_buildPhaseTip(phase, color));
+    }
+    _placePhaseTip(_mouseX, _mouseY);
+  });
+
+  cd.on('plotly_unhover', scheduleHide);
+
+  cd.addEventListener('mousemove', onMove);
+  cd.addEventListener('mouseleave', scheduleHide);
+  cd._phaseHoverFns = { move: onMove, leave: scheduleHide };
+}
+
+function _buildPhaseTip(phase, color) {
+  const bullets = (phase.bullets || []).map(b => `
+    <div style="margin-bottom:7px">
+      <div style="color:${color};font-weight:600;font-size:.79rem">▸ ${b.label}</div>
+      <div style="color:#c9d1d9;font-size:.79rem;line-height:1.5;margin-top:1px">${b.text}</div>
+    </div>`).join('');
+  const tip = document.createElement('div');
+  tip.id = 'phaseHoverTip';
+  tip.style.cssText = `
+    position:fixed;z-index:9999;pointer-events:none;
+    width:272px;background:#161b22;border:1px solid ${color}55;border-radius:9px;
+    padding:12px 14px;box-shadow:0 6px 24px rgba(0,0,0,.65);
+    font-size:.82rem;line-height:1.5;color:#e6edf3;`;
+  tip.innerHTML = `
+    <div style="margin-bottom:9px">
+      <span style="color:${color};font-weight:700">阶段${phase.num}</span>
+      <span style="color:#8b949e;font-size:.74rem;margin-left:6px">${phase.timeRange}</span>
+      ${phase.title ? `<div style="font-weight:600;margin-top:2px;font-size:.82rem">${phase.title}</div>` : ''}
+    </div>
+    ${bullets || '<div style="color:#8b949e">暂无详情</div>'}`;
+  return tip;
+}
+
+function _placePhaseTip(cx, cy) {
+  const tip = document.getElementById('phaseHoverTip');
+  if (!tip) return;
+  const W = window.innerWidth, H = window.innerHeight;
+  const tw = 272, th = tip.offsetHeight || 180;
+
+  // Horizontal: prefer right of cursor, flip left if near right edge
+  let left = cx + 18;
+  if (left + tw > W - 8) left = cx - tw - 18;
+
+  // Vertical: prefer ABOVE cursor so it never covers the PE subplot below
+  let top = cy - th - 10;
+  if (top < 8) top = cy + 22;          // not enough room above → go below
+  if (top + th > H - 8) top = H - th - 8; // clamp to viewport bottom
+
+  tip.style.left = left + 'px';
+  tip.style.top  = top  + 'px';
+}
+
+// ── Chart phase analysis ──────────────────────────────────────────────────────
+async function runPhaseAnalysis(code) {
+  if (!code) return;   // no stock loaded yet
+  const btn     = document.getElementById('btnPhaseAnalyze');
+  if (!btn) return;
+
+  btn.disabled      = true;
+  btn.textContent   = '分析中…';
+  btn.style.opacity = '.6';
+
+  // Show status in phaseAnalysisContent if it exists
+  const content = document.getElementById('phaseAnalysisContent');
+  if (content) { content.style.display = 'block'; content.innerHTML = ''; }
+
+  content.innerHTML = `
+    <div style="display:flex;align-items:center;gap:7px;color:var(--muted);font-size:.82rem;padding:2px 0">
+      <div class="spin" style="width:13px;height:13px;border-width:2px;flex-shrink:0"></div>
+      <span id="phaseStatusText">截图中…</span>
+    </div>`;
+
+  function setStatus(msg) {
+    const st = document.getElementById('phaseStatusText');
+    if (st) st.textContent = msg;
+  }
+
+  let imageData;
+  try {
+    imageData = await Plotly.toImage('chartDiv', { format: 'png', width: 960, height: 520 });
+  } catch (e) {
+    content.innerHTML = `<div style="color:var(--red);font-size:.8rem">⚠ 截图失败：${e.message}</div>`;
+    btn.disabled = false; btn.style.opacity = '1'; btn.textContent = '重试';
+    return;
+  }
+
+  setStatus('AI 分析中…');
+
+  const myGen = _phaseGen;
+  function isStale() { return _phaseGen !== myGen; }
+  let fullText = '';
+  let hadError = false;
+
+  try {
+    const resp = await fetch(`/api/analyze_chart/${code}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image: imageData }),
+    });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ error: resp.statusText }));
+      throw new Error(err.error || resp.statusText);
+    }
+
+    const reader  = resp.body.getReader();
+    const decoder = new TextDecoder();
+
+    outer: while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const raw = decoder.decode(value, { stream: true });
+      for (const line of raw.split('\n')) {
+        if (!line.startsWith('data: ')) continue;
+        let obj;
+        try { obj = JSON.parse(line.slice(6)); } catch { continue; }
+        if (obj.error)  { throw new Error(obj.error); }
+        if (obj.status) { setStatus(obj.status); }
+        if (obj.text)   { fullText += obj.text; }
+        if (obj.done)   { break outer; }
+      }
+    }
+
+    if (!isStale()) {
+      setStatus('标注阶段中…');
+      applyPhaseAnnotations(fullText);
+    }
+
+  } catch (e) {
+    if (!isStale())
+      content.innerHTML = `<div style="color:var(--red);font-size:.8rem">⚠ ${e.message}</div>`;
+    hadError = true;
+  }
+
+  if (!isStale()) {
+    btn.disabled      = false;
+    btn.style.opacity = '1';
+    btn.textContent   = hadError ? '重试' : '重新分析';
+  }
+}
+
+// Minimal Markdown → HTML renderer (bold, paragraphs)
+function renderMd(text) {
+  // If the model returned HTML (e.g. <p>, <strong> tags), style it for dark
+  // theme and pass through directly rather than double-escaping.
+  if (/<p[\s/>]/i.test(text) || /<strong[\s/>]/i.test(text)) {
+    return text
+      // inject dark-theme styles onto bare block tags
+      .replace(/<p>/gi,      '<p style="margin:0 0 9px;line-height:1.6">')
+      .replace(/<p /gi,      '<p style="margin:0 0 9px;line-height:1.6" ')
+      .replace(/<strong>/gi, '<strong style="color:#e6edf3;font-weight:600">')
+      .replace(/<strong /gi, '<strong style="color:#e6edf3;font-weight:600" ');
+  }
+  // Markdown path: escape HTML first, then apply markdown rules
+  const safe = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  return safe
+    .replace(/\*\*(.*?)\*\*/g,
+      '<strong style="color:#e6edf3;font-weight:600">$1</strong>')
+    .split(/\n\n+/)
+    .map(p => `<p style="margin:0 0 9px;line-height:1.6">${
+      p.trim().replace(/\n/g, '<br>')
+    }</p>`)
+    .join('');
+}
+
+// ── cyclical sector detection (mirrors Python _CYCLICAL_KW) ─────────────────
+// Mirrors Python _CYCLICAL_KW — must stay in sync with app.py
+const _CYCLICAL_KW = [
+  '工业金属','能源金属','贵金属',   // 铜铝锌镍 / 锂钴 / 金银
+  '普钢','特钢','冶钢原料','钢铁','有色金属',  // 钢铁 (兜底)
+  '煤炭',                           // 煤炭开采
+  '炼化','石油','石化',             // 油气
+  '航运','采矿','矿业',             // 其他大宗
+];
+function isCyclical(industry) {
+  if (!industry) return false;
+  return _CYCLICAL_KW.some(kw => industry.includes(kw));
+}
+
+// ── screener state ───────────────────────────────────────────────────────────
+let scanAllResults  = [];   // raw from server
+let scanPollTimer   = null;
+let scanHasStarted  = false;  // true once we've seen running=true at least once
+let scanIsDone      = false;  // true once scan fully completed
+let screenSortCol   = 'g10';
+let screenSortAsc   = false;
+
+function openScreener() {
+  document.getElementById('screenOverlay').classList.add('open');
+  // If scan was already done, show results immediately
+  if (scanAllResults.length > 0) renderScreenResults();
+}
+
+function closeScreener(ev) {
+  if (!ev || ev.target === document.getElementById('screenOverlay')) {
+    document.getElementById('screenOverlay').classList.remove('open');
+    clearInterval(scanPollTimer);
+    scanPollTimer = null;
+  }
+}
+
+async function startScan() {
+  const btn   = document.getElementById('btnScan');
+  const force = btn.textContent.includes('重新');  // "▶ 重新扫描" → force refresh
+  btn.disabled = true;
+  btn.textContent = '扫描中…';
+  // Reset state for the new scan
+  scanHasStarted = false;
+  scanIsDone     = false;
+  scanAllResults = [];
+  document.getElementById('progressFill').style.width = '0%';
+  document.getElementById('scanProgress').style.display = 'block';
+  document.getElementById('screenTbody').innerHTML =
+    `<tr><td colspan="14" style="text-align:center;padding:30px;color:var(--muted)">
+      <div class="spin" style="width:24px;height:24px;border-width:2px"></div>
+    </td></tr>`;
+
+  const res = await fetch('/api/screen/start', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ force }),
+  });
+  const d = await res.json();
+  if (d.cached) {
+    // Results already ready from a previous scan (and not forced)
+    await pollScan();
+    return;
+  }
+  // Start polling every 2s
+  scanPollTimer = setInterval(pollScan, 2000);
+  await pollScan();
+}
+
+async function pollScan() {
+  const res = await fetch('/api/screen/progress');
+  const d   = await res.json();
+
+  scanAllResults = d.results;
+  if (d.running) scanHasStarted = true;
+
+  // Update progress bar
+  const pct = d.total > 0 ? Math.round(d.idx / d.total * 100) : 0;
+  document.getElementById('progressFill').style.width = pct + '%';
+  document.getElementById('progressText').textContent =
+    `已扫描 ${d.idx} / ${d.total}，共找到 ${d.results.length} 只候选股票`;
+
+  renderScreenResults();
+
+  // Only declare done once the scan has actually started (running=true observed)
+  // and then finished. This avoids the race window where running=false before
+  // the thread has set running=true.
+  const trulyDone = d.done || (scanHasStarted && !d.running);
+  if (trulyDone) {
+    scanIsDone = true;
+    clearInterval(scanPollTimer);
+    scanPollTimer = null;
+    const btn = document.getElementById('btnScan');
+    btn.disabled = false;
+    btn.textContent = '▶ 重新扫描';
+    document.getElementById('progressText').textContent =
+      `扫描完成：共 ${d.total} 只，找到 ${d.results.length} 只候选`;
+    renderScreenResults();  // final render to replace spinner if 0 results
+  }
+}
+
+function val(id) {
+  const v = parseFloat(document.getElementById(id).value);
+  return isNaN(v) ? null : v;
+}
+
+function isBank(industry) {
+  return (industry || '').includes('银行');
+}
+
+function renderScreenResults() {
+  const f10g      = val('f10g'), f5g = val('f5g');
+  const f10r      = val('f10r'), f5r = val('f5r');
+  const fAnnRet        = val('fAnnReturn');
+  const fDebtRatioMax  = val('fDebtRatio');
+  const fVal             = document.getElementById('fValuation').checked;
+  const fExcludeBank     = document.getElementById('fExcludeBank').checked;
+  const fExcludeCyclical = document.getElementById('fExcludeCyclical').checked;
+
+  // Apply filters
+  let rows = scanAllResults.filter(s => {
+    if (f10g !== null && s.g10 < f10g) return false;
+    if (f5g  !== null && s.g5  < f5g)  return false;
+    if (f10r !== null && s.r10 < f10r) return false;
+    if (f5r  !== null && s.r5  < f5r)  return false;
+    if (fVal) {
+      if (s.pess_pe == null || s.fair_pe_base == null) return false;
+      if (s.pess_pe >= s.fair_pe_base) return false;
+    }
+    if (fAnnRet !== null) {
+      if (s.ann_return_base == null || s.ann_return_base < fAnnRet) return false;
+    }
+    if (fDebtRatioMax !== null) {
+      if (s.debt_ratio == null || s.debt_ratio >= fDebtRatioMax) return false;
+    }
+    if (fExcludeBank     && isBank(s.industry_board))     return false;
+    if (fExcludeCyclical && isCyclical(s.industry_board)) return false;
+    return true;
+  });
+
+  // Helper: compute pess/fair ratio for sorting (null → Infinity)
+  const peRatio = s => (s.pess_pe != null && s.fair_pe_base != null && s.fair_pe_base > 0)
+    ? s.pess_pe / s.fair_pe_base : Infinity;
+
+  // Apply sort — option values: "default", "g10_desc", "pess_pe_asc", …
+  const sortSel = document.getElementById('screenSort').value;
+  let sortKey = '', sortDir = '';
+  if (sortSel !== 'default') {
+    const lastU = sortSel.lastIndexOf('_');
+    sortKey = sortSel.slice(0, lastU);   // e.g. "g10", "pess_pe", "ratio", "ann"
+    sortDir = sortSel.slice(lastU + 1);  // "asc" | "desc"
+  }
+
+  if (sortKey === 'pess_pe') {
+    rows.sort((a, b) => {
+      const av = a.pess_pe ?? Infinity, bv = b.pess_pe ?? Infinity;
+      return sortDir === 'asc' ? av - bv : bv - av;
+    });
+  } else if (sortKey === 'ratio') {
+    rows.sort((a, b) => sortDir === 'asc'
+      ? peRatio(a) - peRatio(b) : peRatio(b) - peRatio(a));
+  } else if (sortKey === 'ann') {
+    rows.sort((a, b) => {
+      const av = a.ann_return_base ?? -Infinity, bv = b.ann_return_base ?? -Infinity;
+      return sortDir === 'asc' ? av - bv : bv - av;
+    });
+  } else if (sortKey === 'debt_ratio') {
+    rows.sort((a, b) => {
+      const av = a.debt_ratio ?? Infinity, bv = b.debt_ratio ?? Infinity;
+      return sortDir === 'asc' ? av - bv : bv - av;
+    });
+  } else if (sortKey) {
+    const colMap = { g10: 'g10', g5: 'g5', r10: 'r10', r5: 'r5', mkt: '市值亿' };
+    const key = colMap[sortKey] || 'g10';
+    rows.sort((a, b) => sortDir === 'asc' ? a[key] - b[key] : b[key] - a[key]);
+  }
+  // sortKey === '' (default) → preserve original scan order (market cap desc)
+
+  // Sync column header arrows
+  const sortKeyToTh = {
+    g10: 'th_g10', g5: 'th_g5', r10: 'th_r10', r5: 'th_r5',
+    pess_pe: 'th_pess_pe', ratio: 'th_fair_pe', ann: 'th_ann_return',
+    debt_ratio: 'th_debt_ratio',
+  };
+  ['th_g10','th_g5','th_r10','th_r5','th_pess_pe','th_fair_pe','th_ann_return','th_debt_ratio'].forEach(id => {
+    const th = document.getElementById(id);
+    if (th) { th.classList.remove('active-sort'); th.querySelector('.sort-arrow').textContent = ''; }
+  });
+  if (sortKey) {
+    const activeTh = document.getElementById(sortKeyToTh[sortKey]);
+    if (activeTh) {
+      activeTh.classList.add('active-sort');
+      activeTh.querySelector('.sort-arrow').textContent = sortDir === 'asc' ? ' ↑' : ' ↓';
+    }
+  }
+
+  document.getElementById('foundBadge').textContent =
+    scanAllResults.length > 0 ? `符合条件：${rows.length} / ${scanAllResults.length}` : '';
+
+  // No data yet and scan hasn't finished — leave the spinner in place
+  if (rows.length === 0 && scanAllResults.length === 0 && !scanIsDone) return;
+
+  if (rows.length === 0) {
+    const msg = scanAllResults.length === 0
+      ? '扫描未找到任何有效数据，请检查网络或重新扫描'
+      : '无符合条件的股票，请放宽筛选条件';
+    document.getElementById('screenTbody').innerHTML =
+      `<tr><td colspan="14" style="text-align:center;padding:30px;color:var(--muted)">${msg}</td></tr>`;
+    return;
+  }
+
+  // Compute ranges for bar visualisation
+  const allG = rows.map(r => r.g10); const maxAbsG = Math.max(...allG.map(Math.abs), 1);
+
+  document.getElementById('screenTbody').innerHTML = rows.map((s, i) => {
+    const gCls10 = s.g10 >= 0 ? 'pos' : 'neg';
+    const gCls5  = s.g5  >= 0 ? 'pos' : 'neg';
+    const gSign10 = s.g10 >= 0 ? '+' : '';
+    const gSign5  = s.g5  >= 0 ? '+' : '';
+    // Background bar width for g10
+    const barW = Math.abs(s.g10) / maxAbsG * 100;
+    const barColor = s.g10 >= 0 ? '#3fb950' : '#f85149';
+
+    // Pessimistic PE cell
+    let pessCell;
+    if (s.pess_pe != null) {
+      const c = s.pess_pe < 15 ? '#3fb950' : s.pess_pe < 25 ? '#e3b341' : '#f85149';
+      pessCell = `<td style="color:${c};font-weight:600">${s.pess_pe.toFixed(1)}</td>`;
+    } else {
+      pessCell = `<td style="color:var(--muted)">—</td>`;
+    }
+
+    // 基准终局 fair PE cell — also show "cheap" badge when pess < fair
+    let fairCell;
+    if (s.fair_pe_base != null) {
+      const cheap = s.pess_pe != null && s.pess_pe < s.fair_pe_base;
+      const ratio = (s.pess_pe != null && s.fair_pe_base > 0)
+        ? (s.pess_pe / s.fair_pe_base * 100).toFixed(0) + '%' : '';
+      const badge = cheap
+        ? `<span style="margin-left:5px;font-size:.72rem;padding:1px 5px;border-radius:3px;background:rgba(63,185,80,.2);color:#3fb950">↓${ratio}</span>`
+        : (s.pess_pe != null
+            ? `<span style="margin-left:5px;font-size:.72rem;padding:1px 5px;border-radius:3px;background:rgba(248,81,73,.12);color:#f85149">↑${ratio}</span>`
+            : '');
+      fairCell = `<td style="color:var(--muted)">${s.fair_pe_base.toFixed(1)}${badge}</td>`;
+    } else {
+      fairCell = `<td style="color:var(--muted)">—</td>`;
+    }
+
+    // 基准终局年化回报 cell
+    let annCell;
+    if (s.ann_return_base != null) {
+      const ar = s.ann_return_base;
+      const arSign  = ar >= 0 ? '+' : '';
+      const arColor = ar >= 15 ? '#3fb950' : ar >= 8 ? '#e3b341' : ar >= 0 ? '#c9d1d9' : '#f85149';
+      annCell = `<td style="color:${arColor};font-weight:700">${arSign}${ar.toFixed(1)}%</td>`;
+    } else {
+      annCell = `<td style="color:var(--muted)">—</td>`;
+    }
+
+    // 资产负债率 cell
+    let debtCell;
+    if (s.debt_ratio != null) {
+      const dr = s.debt_ratio;
+      // Color: green < 40%, yellow 40–60%, red > 70%
+      const drColor = dr < 40 ? '#3fb950' : dr < 60 ? '#e3b341' : dr < 70 ? '#c9d1d9' : '#f85149';
+      debtCell = `<td style="color:${drColor}">${dr.toFixed(1)}%</td>`;
+    } else {
+      debtCell = `<td style="color:var(--muted)">—</td>`;
+    }
+
+    return `<tr onclick="openModal('${s.代码}','${s.名称}')">
+      <td style="padding:9px 6px;text-align:center" onclick="event.stopPropagation()"><input type="checkbox" class="stock-cb" data-code="${s.代码}" data-name="${s.名称}" onchange="toggleSelect(this)" style="cursor:pointer;accent-color:var(--accent)"></td>
+      <td class="rank">${i + 1}</td>
+      <td class="code">${s.代码}</td>
+      <td>${s.名称}</td>
+      <td><span class="mktcap">${s.市值亿.toFixed(0)}</span></td>
+      <td class="bar-cell">
+        <div class="bar-bg" style="width:${barW}%;background:${barColor}"></div>
+        <span class="bar-val ${gCls10}">${gSign10}${s.g10.toFixed(2)}%</span>
+      </td>
+      <td class="${gCls5}">${gSign5}${s.g5.toFixed(2)}%</td>
+      <td style="color:var(--accent)">${s.r10.toFixed(1)}%</td>
+      <td style="color:#58a6ff">${s.r5.toFixed(1)}%</td>
+      ${pessCell}
+      ${fairCell}
+      ${annCell}
+      ${debtCell}
+      <td><button class="btn-analyze" onclick="event.stopPropagation();openModal('${s.代码}','${s.名称}')">图表</button></td>
+    </tr>`;
+  }).join('');
+
+  // Restore checkbox checked state after re-render
+  document.querySelectorAll('.stock-cb').forEach(cb => {
+    if (selectedCodes.has(cb.dataset.code)) cb.checked = true;
+  });
+  const allCbs = [...document.querySelectorAll('.stock-cb')];
+  const cbAll = document.getElementById('cbSelectAll');
+  if (cbAll) cbAll.checked = allCbs.length > 0 && allCbs.every(cb => cb.checked);
+}
+
+function setSortCol(col) {
+  // Three-state cycle: none → asc → desc → none
+  const sel = document.getElementById('screenSort');
+  const cur = sel.value;
+  // Normalise col name to the option key prefix
+  const prefix = col === '市值亿' ? 'mkt' : col === 'fair_pe_base' ? 'ratio' : col;
+  const ascOpt  = prefix + '_asc';
+  const descOpt = prefix + '_desc';
+  if      (cur === ascOpt)  sel.value = descOpt;   // asc  → desc
+  else if (cur === descOpt) sel.value = 'default';  // desc → no sort
+  else                      sel.value = ascOpt;     // none → asc
+  renderScreenResults();
+}
+
+function clearFilters() {
+  ['f10g','f5g','f10r','f5r','fAnnReturn','fDebtRatio'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('fValuation').checked       = false;
+  document.getElementById('fExcludeBank').checked     = false;
+  document.getElementById('fExcludeCyclical').checked = false;
+  renderScreenResults();
+}
+
+// ── portfolio: selection state ───────────────────────────────────────────────
+const selectedCodes = new Map(); // code → name
+
+function toggleSelect(cb) {
+  if (cb.checked) selectedCodes.set(cb.dataset.code, cb.dataset.name);
+  else            selectedCodes.delete(cb.dataset.code);
+  updatePortfolioBtn();
+}
+
+function selectAllVisible(masterCb) {
+  document.querySelectorAll('.stock-cb').forEach(cb => {
+    cb.checked = masterCb.checked;
+    if (masterCb.checked) selectedCodes.set(cb.dataset.code, cb.dataset.name);
+    else                  selectedCodes.delete(cb.dataset.code);
+  });
+  updatePortfolioBtn();
+}
+
+function updatePortfolioBtn() {
+  const n   = selectedCodes.size;
+  const btn = document.getElementById('btnPortfolio');
+  const cnt = document.getElementById('selCount');
+  if (!btn) return;
+  btn.disabled    = n < 2;
+  btn.textContent = n >= 2 ? `🧩 组合分析（${n}只）` : '🧩 组合分析';
+  if (cnt) cnt.textContent = n > 0 ? `已选 ${n} 只` : '';
+}
+
+// ── portfolio: open / close ───────────────────────────────────────────────────
+async function openPortfolio() {
+  const codes = [...selectedCodes.keys()];
+  const names = Object.fromEntries(selectedCodes);
+  if (codes.length < 2) return;
+
+  document.getElementById('portfolioTitle').textContent =
+    `等权组合分析（${codes.length} 只）— 归一化净值 · 对数线性回归`;
+  document.getElementById('portfolioChartDiv').innerHTML = '';
+  document.getElementById('portfolioStatsPanel').innerHTML =
+    `<div style="text-align:center;padding:40px 0;color:var(--muted)">
+       <div class="spin"></div>
+       <div style="margin-top:12px;font-size:.8rem">正在拉取历史行情…</div>
+     </div>`;
+  document.getElementById('portfolioOverlay').classList.add('open');
+
+  try {
+    const r = await fetch('/api/portfolio', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ codes }),
+    });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    drawPortfolioChart(d, names);
+    drawPortfolioStats(d);
+  } catch(e) {
+    document.getElementById('portfolioChartDiv').innerHTML =
+      `<div style="color:var(--red);text-align:center;padding:60px">加载失败：${e.message}</div>`;
+    document.getElementById('portfolioStatsPanel').innerHTML = '';
+  }
+}
+
+function closePortfolio(ev) {
+  if (!ev || ev.target === document.getElementById('portfolioOverlay')) {
+    document.getElementById('portfolioOverlay').classList.remove('open');
+    Plotly.purge('portfolioChartDiv');
+  }
+}
+
+// ── portfolio: chart ──────────────────────────────────────────────────────────
+const COMP_COLORS = [
+  'rgba(227,179,65,.65)',  'rgba(247,129,102,.65)', 'rgba(210,168,255,.65)',
+  'rgba(121,192,255,.65)', 'rgba(86,211,100,.65)',  'rgba(255,166,87,.65)',
+  'rgba(255,123,114,.65)', 'rgba(165,214,255,.65)', 'rgba(126,231,135,.65)',
+  'rgba(240,136,62,.65)',
+];
+
+function drawPortfolioChart(d, names) {
+  const traces = [];
+  const compCodes = Object.keys(d.components);
+
+  // Band fill (drawn first)
+  traces.push({
+    x: d.dates, y: d.lower_band, type: 'scatter', mode: 'lines',
+    name: '止损参考（P10）',
+    line: { color: 'rgba(248,81,73,0.45)', width: 1.5, dash: 'longdash' },
+    hovertemplate: '%{y:.3f}<extra>止损线</extra>'
+  });
+  traces.push({
+    x: d.dates, y: d.upper_band, type: 'scatter', mode: 'lines',
+    name: '止盈参考（P90）',
+    fill: 'tonexty', fillcolor: 'rgba(88,166,255,0.05)',
+    line: { color: 'rgba(63,185,80,0.45)', width: 1.5, dash: 'longdash' },
+    hovertemplate: '%{y:.3f}<extra>止盈线</extra>'
+  });
+
+  // Individual component lines (thin, semi-transparent)
+  compCodes.forEach((code, idx) => {
+    traces.push({
+      x: d.dates, y: d.components[code], type: 'scatter', mode: 'lines',
+      name: `${names[code] || code}（${code}）`,
+      line: { color: COMP_COLORS[idx % COMP_COLORS.length], width: 1 },
+      hovertemplate: `%{y:.3f}<extra>${names[code] || code}</extra>`
+    });
+  });
+
+  // Portfolio line (bold, white — drawn on top)
+  traces.push({
+    x: d.dates, y: d.portfolio, type: 'scatter', mode: 'lines',
+    name: `等权组合（${compCodes.length}只）`,
+    line: { color: '#e6edf3', width: 2.5 },
+    hovertemplate: '%{y:.3f}<extra>组合净值</extra>'
+  });
+
+  // Regression lines
+  traces.push({
+    x: d.dates, y: d.reg_10y, type: 'scatter', mode: 'lines',
+    name: '10年回归趋势',
+    line: { color: '#f78166', width: 1.8, dash: 'dot' },
+    hovertemplate: '%{y:.3f}<extra>10年趋势</extra>'
+  });
+  traces.push({
+    x: d.dates, y: d.reg_5y, type: 'scatter', mode: 'lines',
+    name: '5年回归趋势',
+    line: { color: '#3fb950', width: 1.8, dash: 'dash' },
+    hovertemplate: '%{y:.3f}<extra>5年趋势</extra>'
+  });
+
+  const layout = {
+    paper_bgcolor: '#161b22', plot_bgcolor: '#0d1117',
+    font: { color: '#c9d1d9', size: 12 },
+    xaxis: {
+      title: '日期', gridcolor: '#21262d', linecolor: '#30363d',
+      tickformat: '%Y-%m', tickfont: { size: 11 }
+    },
+    yaxis: {
+      title: '归一化净值（对数坐标，起点 = 1）', type: 'log',
+      gridcolor: '#21262d', linecolor: '#30363d',
+      tickformat: '.2f', tickfont: { size: 11 }
+    },
+    legend: {
+      bgcolor: '#0d1117', bordercolor: '#30363d', borderwidth: 1,
+      x: 0.01, y: 0.99, font: { size: 10 }
+    },
+    shapes: [{
+      type: 'line', x0: d.split_5y_date, x1: d.split_5y_date,
+      yref: 'paper', y0: 0, y1: 1,
+      line: { color: 'rgba(63,185,80,0.3)', width: 1.5, dash: 'dot' }
+    }],
+    annotations: [{
+      x: d.split_5y_date, yref: 'paper', y: 0.98,
+      xanchor: 'left', yanchor: 'top',
+      text: '← 10年    5年 →', showarrow: false,
+      font: { size: 10, color: 'rgba(63,185,80,0.7)' }
+    }],
+    margin: { t: 20, b: 55, l: 75, r: 20 },
+    hovermode: 'x unified'
+  };
+
+  Plotly.react('portfolioChartDiv', traces, layout, { responsive: true, displayModeBar: false });
+}
+
+// ── portfolio: stats panel ────────────────────────────────────────────────────
+function drawPortfolioStats(d) {
+  const s10 = d.stats_10y, s5 = d.stats_5y, bs = d.band_stats;
+
+  function fmtG(g) {
+    const cls = g >= 0 ? 'pos' : 'neg', sign = g >= 0 ? '+' : '';
+    return `<span class="${cls}">${sign}${g.toFixed(2)}%</span>`;
+  }
+
+  // Component comparison rows
+  const r2_10_port = s10.r_squared * 100;
+  const r2_5_port  = s5.r_squared  * 100;
+  const compRows = d.component_stats.map((c, idx) => {
+    const color = COMP_COLORS[idx % COMP_COLORS.length].replace(/[\d.]+\)$/, '1)');
+    const lo10 = c.r2_10 !== undefined && c.r2_10 < r2_10_port;
+    const lo5  = c.r2_5  !== undefined && c.r2_5  < r2_5_port;
+    return `<tr>
+      <td style="font-family:monospace;font-size:.72rem;color:${color};padding:3px 4px">${c.code}</td>
+      <td style="font-size:.75rem;max-width:60px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:3px 4px" title="${c.name}">${c.name}</td>
+      <td style="text-align:right;padding:3px 4px;font-size:.75rem;color:${lo10 ? 'var(--red)' : 'var(--muted)'}">${c.r2_10 !== undefined ? c.r2_10.toFixed(1)+'%' : '—'}</td>
+      <td style="text-align:right;padding:3px 4px;font-size:.75rem;color:${lo5  ? 'var(--red)' : 'var(--muted)'}">${c.r2_5  !== undefined ? c.r2_5.toFixed(1)+'%'  : '—'}</td>
+    </tr>`;
+  }).join('');
+
+  // Band stats block
+  const pos      = bs.channel_pos;
+  const barW     = Math.min(Math.max(pos, 0), 100);
+  const posColor = pos < 25 ? '#f85149' : pos < 75 ? '#58a6ff' : pos <= 100 ? '#3fb950' : '#e3b341';
+  const posLabel = pos < 25 ? '偏低（接近止损）' : pos < 75 ? '通道中部' : pos <= 100 ? '偏高（接近止盈）' : '超出止盈线';
+  const slSign   = bs.stop_loss_pct   >= 0 ? '+' : '';
+  const tpSign   = bs.take_profit_pct >= 0 ? '+' : '';
+
+  document.getElementById('portfolioStatsPanel').innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px">
+      <div style="font-size:.72rem;color:#f78166;text-align:center;font-weight:600;padding:4px 0;background:rgba(247,129,102,.08);border-radius:4px">— 10 年</div>
+      <div style="font-size:.72rem;color:#3fb950;text-align:center;font-weight:600;padding:4px 0;background:rgba(63,185,80,.08);border-radius:4px">-- 5 年</div>
+    </div>
+
+    <div class="stat-card" style="margin-bottom:8px">
+      <div class="sc-lbl" style="margin-bottom:6px">组合年化增长</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;text-align:center">
+        <div style="font-size:1.2rem;font-weight:700">${fmtG(s10.annual_growth)}</div>
+        <div style="font-size:1.2rem;font-weight:700">${fmtG(s5.annual_growth)}</div>
+      </div>
+    </div>
+
+    <div class="stat-card" style="margin-bottom:12px">
+      <div class="sc-lbl" style="margin-bottom:6px">组合 R²</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;text-align:center">
+        <div style="font-size:1.4rem;font-weight:700;color:var(--green)">${r2_10_port.toFixed(1)}%</div>
+        <div style="font-size:1.4rem;font-weight:700;color:var(--green)">${r2_5_port.toFixed(1)}%</div>
+      </div>
+    </div>
+
+    <div style="border-top:1px solid var(--border);padding-top:10px;margin-bottom:10px">
+      <div style="font-size:.72rem;color:var(--muted);margin-bottom:7px;font-weight:600">📊 成分 vs 组合 R²</div>
+      <table style="width:100%;border-collapse:collapse">
+        <thead>
+          <tr style="color:var(--muted);font-size:.69rem">
+            <th style="text-align:left;padding:2px 4px;font-weight:500">代码</th>
+            <th style="text-align:left;padding:2px 4px;font-weight:500">名称</th>
+            <th style="text-align:right;padding:2px 4px;font-weight:500">R²10</th>
+            <th style="text-align:right;padding:2px 4px;font-weight:500">R²5</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${compRows}
+          <tr style="border-top:1px solid var(--border);font-weight:700;color:var(--green)">
+            <td colspan="2" style="padding:4px 4px;font-size:.76rem">组合</td>
+            <td style="text-align:right;padding:4px 4px;font-size:.76rem">${r2_10_port.toFixed(1)}%</td>
+            <td style="text-align:right;padding:4px 4px;font-size:.76rem">${r2_5_port.toFixed(1)}%</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div style="border-top:1px solid var(--border);padding-top:10px">
+      <div style="font-size:.72rem;color:var(--muted);margin-bottom:8px;font-weight:600">⚖ 止盈止损通道（5年）</div>
+      <div class="stat-card" style="margin-bottom:8px;padding:10px 12px;text-align:left">
+        <div class="sc-lbl" style="margin-bottom:6px;text-align:center">通道位置</div>
+        <div style="height:6px;background:var(--border);border-radius:3px;overflow:hidden;margin-bottom:6px">
+          <div style="width:${barW}%;height:100%;background:${posColor};border-radius:3px"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span style="font-size:1.15rem;font-weight:700;color:${posColor}">${pos.toFixed(1)}%</span>
+          <span style="font-size:.67rem;color:var(--muted)">${posLabel}</span>
+        </div>
+      </div>
+      <div class="stat-card" style="margin-bottom:8px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;text-align:center">
+          <div>
+            <div style="font-size:.67rem;color:var(--muted);margin-bottom:3px">距止损线</div>
+            <div style="font-size:1rem;font-weight:700;color:var(--red)">${slSign}${bs.stop_loss_pct.toFixed(1)}%</div>
+          </div>
+          <div>
+            <div style="font-size:.67rem;color:var(--muted);margin-bottom:3px">距止盈线</div>
+            <div style="font-size:1rem;font-weight:700;color:var(--green)">${tpSign}${bs.take_profit_pct.toFixed(1)}%</div>
+          </div>
+        </div>
+      </div>
+      <div class="stat-card" style="margin-bottom:0">
+        <div class="sc-lbl" style="margin-bottom:4px">5年最大回撤</div>
+        <div style="font-size:1.15rem;font-weight:700;color:var(--red)">${bs.max_drawdown.toFixed(1)}%</div>
+      </div>
+    </div>
+
+    <p class="note" style="margin-top:10px;margin-bottom:0">
+      等权组合：各成分归一化至起点 = 1，再取均值。低相关成分的噪声相互抵消，
+      组合趋势通常比单只股票更平滑（R² 更高）。
+    </p>`;
+}
+
+// ── keyboard close ───────────────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    closePortfolio(null);
+    closeModal(null);
+    closeScreener(null);
+  }
+});
+
+// ── init ─────────────────────────────────────────────────────────────────────
+loadList();
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TREND TRADING SCREENER
+// ═══════════════════════════════════════════════════════════════════════════
+
+let trendAllResults = [];
+let trendPollTimer  = null;
+let trendSortKey    = 'score';
+let trendSortDir    = 'desc';
+
+// ── On-demand 52-week closes cache ────────────────────────────────────────────
+// Keyed by 代码. Populated lazily after the frontend filters down to a small set.
+const _closes52wCache = new Map();
+let   _closes52wFetching = false;
+
+async function _fetchCloses52w(stocks) {
+  const missing = stocks.filter(s => !_closes52wCache.has(s.代码));
+  if (!missing.length) return;
+
+  // Batch into groups of 30 to avoid long-running requests / Tencent rate limits
+  const BATCH = 30;
+  for (let i = 0; i < missing.length; i += BATCH) {
+    const batch = missing.slice(i, i + BATCH);
+    try {
+      const resp = await fetch('/api/trend/closes52w', {
+        method:  'POST',
+        headers: {'Content-Type': 'application/json'},
+        body:    JSON.stringify({stocks: batch.map(s => ({代码: s.代码, _tc: s._tc}))}),
+      });
+      const data = await resp.json();
+      for (const [code, vals] of Object.entries(data)) {
+        _closes52wCache.set(code, vals);
+      }
+    } catch(e) { /* network error — skip batch, will retry next render */ }
+  }
+
+  // Merge all cached data back into trendAllResults
+  for (const s of trendAllResults) {
+    const c = _closes52wCache.get(s.代码);
+    if (c) {
+      s.closes_52w = c.closes_52w;
+      s.pct10w     = c.pct10w;
+      s.pct20w     = c.pct20w;
+    }
+  }
+}
+
+// ── Correlation hover panel ───────────────────────────────────────────────────
+function showCorrPanel(code, el) {
+  const rows  = window._trendRows  || [];
+  const lrMap = window._trendLrMap || new Map();
+  const cached = _closes52wCache.get(code);
+  const lr = lrMap.get(code)
+    || (cached?.closes_52w ? _logReturns(cached.closes_52w) : null);
+  if (!lr || !lr.length) return;
+
+  const corrs = rows
+    .filter(r => r.代码 !== code)
+    .map(r => {
+      const c = _closes52wCache.get(r.代码);
+      const lr2 = lrMap.get(r.代码)
+        || (c?.closes_52w ? _logReturns(c.closes_52w) : null);
+      if (!lr2) return null;
+      return { name: r.名称, corr: _pearson(lr, lr2) };
+    })
+    .filter(Boolean)
+    .filter(c => c.corr > 0)
+    .sort((a, b) => b.corr - a.corr)
+    .slice(0, 6);
+
+  if (!corrs.length) return;
+
+  document.getElementById('corrPanelContent').innerHTML = corrs.map(c => {
+    const pct   = (c.corr * 100).toFixed(0);
+    const color = Math.abs(c.corr) >= 0.7 ? '#f85149'
+                : Math.abs(c.corr) >= 0.4 ? '#e3b341' : '#8b949e';
+    return `<div style="display:flex;justify-content:space-between;align-items:center;
+                        padding:3px 0;border-bottom:1px solid rgba(255,255,255,.05)">
+      <span style="font-size:.76rem;color:var(--text)">${c.name}</span>
+      <span style="font-size:.76rem;color:${color};font-weight:600;margin-left:12px">${pct}%</span>
+    </div>`;
+  }).join('');
+
+  const rect = el.getBoundingClientRect();
+  const panel = document.getElementById('corrPanel');
+  panel.style.display = 'block';
+  panel.style.top  = Math.min(rect.top, window.innerHeight - panel.offsetHeight - 8) + 'px';
+  panel.style.left = (rect.right + 8) + 'px';
+}
+function hideCorrPanel() {
+  document.getElementById('corrPanel').style.display = 'none';
+}
+function showTagTip(el, text) {
+  document.getElementById('corrPanelContent').innerHTML =
+    `<div style="font-size:.78rem;color:var(--text);line-height:1.6">${text}</div>`;
+  const panel = document.getElementById('corrPanel');
+  panel.style.display = 'block';
+  const rect = el.getBoundingClientRect();
+  panel.style.top  = Math.min(rect.bottom + 4, window.innerHeight - panel.offsetHeight - 8) + 'px';
+  panel.style.left = rect.left + 'px';
+}
+
+// ── Correlation helpers ───────────────────────────────────────────────────────
+function _logReturns(normCloses) {
+  const ret = [];
+  for (let i = 1; i < normCloses.length; i++) {
+    ret.push((normCloses[i] > 0 && normCloses[i-1] > 0)
+      ? Math.log(normCloses[i] / normCloses[i-1]) : 0);
+  }
+  return ret;
+}
+function _pearson(a, b) {
+  const n = Math.min(a.length, b.length);
+  if (n < 10) return 0;
+  const ax = a.slice(a.length - n), bx = b.slice(b.length - n);
+  let ma = 0, mb = 0;
+  for (let i = 0; i < n; i++) { ma += ax[i]; mb += bx[i]; }
+  ma /= n; mb /= n;
+  let num = 0, da = 0, db = 0;
+  for (let i = 0; i < n; i++) {
+    const ai = ax[i] - ma, bi = bx[i] - mb;
+    num += ai * bi; da += ai * ai; db += bi * bi;
+  }
+  return (da > 1e-12 && db > 1e-12) ? num / Math.sqrt(da * db) : 0;
+}
+
+function openTrend() {
+  document.getElementById('trendOverlay').classList.add('open');
+  // Pre-load the broad stock list in the background so scan can start quickly
+  fetch('/api/trend/stocks').catch(() => {});
+}
+function closeTrend(ev) {
+  if (!ev || ev.target === document.getElementById('trendOverlay')) {
+    document.getElementById('trendOverlay').classList.remove('open');
+  }
+}
+
+// ── sparkline SVG ────────────────────────────────────────────────────────────
+function makeSpark(closes, slope) {
+  if (!closes || closes.length < 2) return '<span style="color:var(--muted)">—</span>';
+  const W = 80, H = 28, pad = 2;
+  const mn = Math.min(...closes), mx = Math.max(...closes);
+  const range = mx - mn || 1;
+  const pts = closes.map((v, i) => {
+    const x = pad + (i / (closes.length - 1)) * (W - pad * 2);
+    const y = H - pad - ((v - mn) / range) * (H - pad * 2);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  const color = slope >= 1 ? '#3fb950' : slope >= 0 ? '#e3b341' : '#f85149';
+  return `<svg class="sparkline" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+    <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linejoin="round"/>
+  </svg>`;
+}
+
+// ── render ───────────────────────────────────────────────────────────────────
+function renderTrendResults() {
+  const fSlopeMin    = parseFloat(document.getElementById('tFSlopeMin').value);
+  const fSlopeTopPct = parseFloat(document.getElementById('tFSlopeTopPct').value);
+  const fR2          = parseFloat(document.getElementById('tFR2').value);
+  const fGainMax     = parseFloat(document.getElementById('tFGainMax').value);
+  const fMktMin      = parseFloat(document.getElementById('tFMktMin').value);
+  const fMktMax      = parseFloat(document.getElementById('tFMktMax').value);
+  const exLoss       = document.getElementById('tFExcludeLoss').checked;
+  const exBank       = document.getElementById('tExcludeBank').checked;
+  const exCyc        = document.getElementById('tExcludeCyclical').checked;
+
+  // Compute slope upper cutoff from the full scanned universe (all results)
+  let slopeMax = Infinity;
+  if (!isNaN(fSlopeTopPct) && fSlopeTopPct > 0 && trendAllResults.length > 0) {
+    const sorted = [...trendAllResults].map(s => s.trend_slope).sort((a, b) => a - b);
+    const cutoffIdx = Math.floor(sorted.length * (1 - fSlopeTopPct / 100));
+    slopeMax = sorted[Math.max(0, cutoffIdx)];
+  }
+
+  let rows = trendAllResults.filter(s => {
+    // Exclude stocks listed < 1 year: closes_52w will be null once 52w data is fetched
+    if (_closes52wCache.has(s.代码) && !_closes52wCache.get(s.代码).closes_52w) return false;
+    if (!isNaN(fSlopeMin) && s.trend_slope < fSlopeMin) return false;
+    if (s.trend_slope > slopeMax)                        return false;
+    if (!isNaN(fGainMax) && s.atr_50d > 0) {
+      if (s.trend_slope > fGainMax * s.atr_50d) return false;
+    }
+    if (!isNaN(fR2) && s.sigma_res > fR2) return false;
+    // ETFs bypass market-cap and PE filters (no meaningful PE; AUM not comparable)
+    if (!s.is_etf) {
+      if (!isNaN(fMktMin) && s.市值亿 < fMktMin) return false;
+      if (!isNaN(fMktMax) && s.市值亿 > fMktMax) return false;
+      if (exLoss && !s.is_etf && (s.pe ?? 0) <= 0) return false;
+    }
+    if (exBank && isBank(s.industry_board))               return false;
+    if (exCyc  && isCyclical(s.industry_board))           return false;
+    // Momentum filter: exclude if price has pulled back too far from recent high,
+    // OR if 7-day high is already below 30-day high (earlier peak).
+    // Catches both "just topped" and "topped weeks ago" cases.
+    if (document.getElementById('tFExcludeReverse').checked) {
+      if (s.max_high_7d > 0 && s.last_close > 0 && s.atr_50d > 0) {
+        const dd = (1 - s.last_close / s.max_high_7d) * 100;
+        if (dd > 2 * s.atr_50d) return false;
+      }
+    }
+    return true;
+  });
+
+  // Score = slope / (1 + σ_res): penalises noise without over-amplifying clean trends
+  const score = s => s.trend_slope > 0
+    ? Math.min(s.trend_slope, 4.5) * (8 - (s.sigma_res ?? 99))
+    : 0;
+
+  // Sort
+  const sk = trendSortKey, sd = trendSortDir;
+  if (sk === 'slope') {
+    rows.sort((a,b) => sd==='asc' ? a.trend_slope - b.trend_slope : b.trend_slope - a.trend_slope);
+  } else if (sk === 'r2') {
+    // "r2_desc" option now sorts by sigma_res ascending (less noise = better)
+    rows.sort((a,b) => sd==='asc' ? (b.sigma_res??Infinity) - (a.sigma_res??Infinity) : (a.sigma_res??Infinity) - (b.sigma_res??Infinity));
+  } else if (sk === 'mkt') {
+    rows.sort((a,b) => sd==='asc' ? a.市值亿 - b.市值亿 : b.市值亿 - a.市值亿);
+  } else if (sk === 'gain') {
+    const gainOf = s => s.trend_closes?.length ? (s.trend_closes[s.trend_closes.length-1] - 1) * 100 : -Infinity;
+    rows.sort((a,b) => sd==='asc' ? gainOf(a) - gainOf(b) : gainOf(b) - gainOf(a));
+  } else if (sk === 'ret20') {
+    rows.sort((a,b) => {
+      const av = a.ret20w ?? -Infinity, bv = b.ret20w ?? -Infinity;
+      return sd==='asc' ? av - bv : bv - av;
+    });
+  } else if (sk === 'drawdown') {
+    const ddOf = s => (s.max_high_7d && s.last_close) ? (1 - s.last_close / s.max_high_7d) * 100 : Infinity;
+    rows.sort((a,b) => sd==='asc' ? ddOf(a) - ddOf(b) : ddOf(b) - ddOf(a));
+  } else if (sk === 'atr') {
+    rows.sort((a,b) => {
+      const av = a.atr_50d ?? -Infinity, bv = b.atr_50d ?? -Infinity;
+      return sd==='asc' ? av - bv : bv - av;
+    });
+  } else if (sk === 'pct10w') {
+    rows.sort((a,b) => {
+      const av = a.pct10w ?? -Infinity, bv = b.pct10w ?? -Infinity;
+      return sd==='asc' ? av - bv : bv - av;
+    });
+  } else if (sk === 'pct20w') {
+    rows.sort((a,b) => {
+      const av = a.pct20w ?? -Infinity, bv = b.pct20w ?? -Infinity;
+      return sd==='asc' ? av - bv : bv - av;
+    });
+  } else if (sk === 'chgToday') {
+    rows.sort((a,b) => {
+      const av = a['涨跌幅'] ?? -Infinity, bv = b['涨跌幅'] ?? -Infinity;
+      return sd==='asc' ? av - bv : bv - av;
+    });
+  } else if (sk === 'pe') {
+    rows.sort((a,b) => {
+      const av = (a.pe > 0) ? a.pe : Infinity;
+      const bv = (b.pe > 0) ? b.pe : Infinity;
+      return sd==='asc' ? av - bv : bv - av;
+    });
+  } else {
+    // score desc (default)
+    rows.sort((a,b) => score(b) - score(a));
+  }
+
+  // ── Correlation-based concentration penalty (2 iterations) ─────────────
+  // Pre-compute log returns from the 52-week weekly closes (sent by backend).
+  // For each stock in ranked order, find its max absolute Pearson correlation
+  // with all higher-ranked stocks already "accepted"; penalise accordingly.
+  // Iterate twice so the ranking stabilises after re-scoring.
+  rows.forEach((s, i) => { s._orig_rank = i + 1; });
+
+  // Momentum penalty: ATR-based drawdown tiers
+  // >2×ATR below 50d-high → ×0.8 | >1×ATR → ×0.9 | else → no penalty
+  const momentumPenalty = s => {
+    if (!s.max_high_7d || !s.last_close || !s.atr_50d) return 1.0;
+    const dd = (1 - s.last_close / s.max_high_7d) * 100;
+    if (dd > 1 * s.atr_50d) return 0.85;
+    return 1.0;
+  };
+
+  // 20-week overextension penalty
+  const apply20wPenalty = document.getElementById('tFPenalty20w').checked;
+  const overextPenalty = s => {
+    if (!apply20wPenalty || s.ret20w == null) return 1.0;
+    const r = s.ret20w / 100;
+    if (r > 0.60) return 0.75;
+    if (r > 0.40) return 0.85;
+    if (r > 0.25) return 0.95;
+    return 1.0;
+  };
+
+  // Re-apply cached 52w data — trendAllResults is replaced wholesale on each
+  // poll, so pct10w / closes_52w set by a previous fetch would be wiped out.
+  rows.forEach(s => {
+    const c = _closes52wCache.get(s.代码);
+    if (c && s.pct10w == null) {
+      s.closes_52w = c.closes_52w;
+      s.pct10w     = c.pct10w;
+      s.pct20w     = c.pct20w;
+    }
+  });
+
+  // Cache log-return vectors (computed once, reused across iterations)
+  const _lrMap = new Map();
+  rows.forEach(s => {
+    if (s.closes_52w && s.closes_52w.length > 1)
+      _lrMap.set(s.代码, _logReturns(s.closes_52w));
+  });
+
+  // Correlation threshold: only penalise pairs with |r| >= 0.85
+  // (roughly "same-industry or ETF vs underlying" level of co-movement)
+  const CORR_THRESHOLD = 0.40;
+
+  for (let iter = 0; iter < 2; iter++) {
+    const accepted = [];   // {代码, 名称, lr, corr} — higher-ranked stocks already processed
+    rows.forEach(s => {
+      const lr = _lrMap.get(s.代码) || null;
+      // Count how many higher-ranked stocks exceed the correlation threshold,
+      // and track the single most-correlated one for the tooltip.
+      let corrCount = 0, maxCorr = 0, maxCorrName = '';
+      if (lr) {
+        for (const acc of accepted) {
+          const c = Math.abs(_pearson(lr, acc.lr));
+          if (c >= CORR_THRESHOLD) {
+            corrCount++;
+            if (c > maxCorr) { maxCorr = c; maxCorrName = acc.名称; }
+          }
+        }
+      }
+      // Cumulative penalty — same formula as the old industry penalty
+      const cp = Math.pow(0.9, corrCount);
+      const mp = momentumPenalty(s);
+      const op = overextPenalty(s);
+      s._corr_count    = corrCount;
+      s._max_corr      = maxCorr;
+      s._adj_score     = score(s) * mp * op * cp;
+      accepted.push({ 代码: s.代码, 名称: s.名称, lr: lr || [] });
+
+      if (iter === 1) {
+        const tags = [];
+        if (mp < 1) {
+          const mult = '×0.85';
+          const dd = s.max_high_7d && s.last_close
+            ? ((1 - s.last_close / s.max_high_7d) * 100).toFixed(1) : '?';
+          const atrX = s.atr_50d
+            ? (parseFloat(dd) / s.atr_50d).toFixed(1) : '?';
+          tags.push({label: `趋势减弱${mult}`, color: '#f97316',
+                     title: `回撤${dd}% ≈ ${atrX}×ATR`});
+        }
+        if (op < 1) {
+          const lvl = op <= 0.75 ? '×0.75' : op <= 0.85 ? '×0.85' : '×0.95';
+          tags.push({label: `超涨${lvl}`, color: '#e3b341'});
+        }
+        if (corrCount > 0) {
+          const pct = maxCorr > 0 ? (maxCorr * 100).toFixed(0) : '?';
+          const tip = maxCorrName ? `与「${maxCorrName}」52周相关性 ${pct}%` : `集中惩罚 ×${corrCount}`;
+          tags.push({label: `集中×${corrCount}`, color: '#a78bfa', title: tip});
+        }
+        s._penalty_tags = tags;
+      }
+    });
+    rows.sort((a, b) => b._adj_score - a._adj_score);
+  }
+  rows.forEach((s, i) => { s._new_rank = i + 1; });    // rank after penalty
+  window._trendRows  = rows;        // expose for correlation hover panel
+  window._trendLrMap = _lrMap;
+
+  // Update sort arrows
+  ['tth_slope','tth_r2','tth_score','tth_pe','tth_gain','tth_ret20','tth_drawdown','tth_atr','tth_pct10w','tth_pct20w','tth_chgToday'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.classList.remove('active-sort');
+    const sa = el.querySelector('.sort-arrow');
+    if (sa) sa.textContent = '';
+  });
+  const thMap = { slope:'tth_slope', r2:'tth_r2', score:'tth_score', pe:'tth_pe', gain:'tth_gain', ret20:'tth_ret20', drawdown:'tth_drawdown', atr:'tth_atr', pct10w:'tth_pct10w', pct20w:'tth_pct20w', chgToday:'tth_chgToday' };
+  if (thMap[sk]) {
+    const el = document.getElementById(thMap[sk]);
+    if (el) {
+      el.classList.add('active-sort');
+      el.querySelector('.sort-arrow').textContent = trendSortDir === 'asc' ? ' ↑' : ' ↓';
+    }
+  }
+
+  document.getElementById('tFoundBadge').textContent = rows.length ? `${rows.length} 只` : '';
+
+  if (!rows.length) {
+    const msg = trendAllResults.length === 0
+      ? '暂无数据——扫描可能遇到 API 限速，请点击「↻ 重新扫描」重试'
+      : '无符合条件的股票，请放宽筛选条件';
+    document.getElementById('trendTbody').innerHTML =
+      `<tr><td colspan="14" style="text-align:center;padding:30px;color:var(--muted)">${msg}</td></tr>`;
+    document.getElementById('trendMobileCards').innerHTML =
+      `<div style="text-align:center;padding:40px 0;color:var(--muted)">${msg}</div>`;
+    return;
+  }
+
+  // ── Mobile: render cards ──────────────────────────────────────────────────
+  if (_isMobile()) {
+    document.getElementById('trendMobileCards').innerHTML = _renderMobileTrendCards(rows);
+    return;
+  }
+  document.getElementById('trendMobileCards').innerHTML = '';
+
+  document.getElementById('trendTbody').innerHTML = rows.map((s, i) => {
+    const sl = s.trend_slope;
+    const slSign  = sl >= 0 ? '+' : '';
+    const slColor = sl >= 2 ? '#3fb950' : sl >= 0.5 ? '#e3b341' : sl >= 0 ? '#c9d1d9' : '#f85149';
+
+    const r2 = s.sigma_res;
+    const r2Color = r2 > 0 ? (r2 <= 3 ? '#3fb950' : r2 <= 6 ? '#e3b341' : '#c9d1d9') : 'var(--muted)';
+
+    // Show penalty-adjusted score
+    const sc = s._adj_score ?? score(s);
+    const scColor = sc >= 0.5 ? '#3fb950' : sc >= 0.2 ? '#e3b341' : '#c9d1d9';
+
+    const pe = s.pe ?? 0;
+    const peStr   = pe > 0 ? pe.toFixed(1) : (pe < 0 ? '<span style="color:var(--muted)">亏损</span>' : '<span style="color:var(--muted)">—</span>');
+    const peColor = pe > 0 && pe < 30 ? '#3fb950' : pe >= 30 && pe < 60 ? '#e3b341' : pe >= 60 ? '#c9d1d9' : '';
+
+    // Rank-change badge
+    const diff = s._orig_rank - s._new_rank;   // positive = moved up
+    const rankBadge = diff === 0 ? '' :
+      diff > 0
+        ? `<span style="font-size:.62rem;color:#3fb950;margin-left:3px">↑${diff}</span>`
+        : `<span style="font-size:.62rem;color:#f85149;margin-left:3px">↓${-diff}</span>`;
+
+    const momBadge = momentumPenalty(s) < 1
+      ? `<span title="7日最高价低于30日最高价，动量惩罚×0.15" style="font-size:.65rem;color:#f85149;margin-left:4px">⚡</span>`
+      : '';
+
+    // Type badges
+    const typeBadge = s.is_etf
+      ? `<span style="font-size:.6rem;padding:1px 4px;border-radius:3px;background:rgba(88,166,255,.2);color:#58a6ff;margin-left:4px">ETF</span>`
+      : s.is_hk
+        ? `<span style="font-size:.6rem;padding:1px 4px;border-radius:3px;background:rgba(255,200,50,.2);color:#ffc832;margin-left:4px">港</span>`
+        : '';
+
+    // Click action: open Eastmoney for ETF/HK; open internal modal for A-shares
+    const rowClick = s.is_etf || s.is_hk
+      ? `window.open('https://quote.eastmoney.com/${s._tc || s.代码}.html','_blank')`
+      : `openModal('${s.代码}','${s.名称}')`;
+    const btnClick = s.is_etf || s.is_hk
+      ? `event.stopPropagation();window.open('https://quote.eastmoney.com/${s._tc || s.代码}.html','_blank')`
+      : `event.stopPropagation();openModal('${s.代码}','${s.名称}')`;
+
+    return `<tr onclick="${rowClick}">
+      <td class="rank">${s._new_rank}${rankBadge}</td>
+      <td class="code">${s.代码}${typeBadge}</td>
+      <td style="white-space:nowrap">${s.名称}${momBadge}<span
+        onmouseenter="showCorrPanel('${s.代码}',this)"
+        onmouseleave="hideCorrPanel()"
+        onclick="event.stopPropagation()"
+        style="display:inline-block;width:9px;height:9px;border-radius:2px;
+               background:rgba(88,166,255,.35);margin-left:6px;cursor:help;
+               vertical-align:middle;flex-shrink:0"></span></td>
+      <td><span class="mktcap">${s.市值亿.toFixed(0)}</span></td>
+      <td style="color:${slColor};font-weight:700" class="trend-score">${slSign}${sl.toFixed(2)}%</td>
+      <td style="color:${r2Color}" class="trend-score">${r2.toFixed(1)}%</td>
+      <td style="color:${scColor};font-weight:600" class="trend-score">${sc.toFixed(2)}</td>
+      <td style="color:${peColor}">${peStr}</td>
+      ${(() => {
+        if (!s.trend_closes || !s.trend_closes.length) return '<td style="color:var(--muted)">—</td>';
+        const g = (s.trend_closes[s.trend_closes.length - 1] - 1) * 100;
+        const gc = g >= 0 ? '#3fb950' : '#f85149';
+        return `<td style="color:${gc};font-weight:600">${g >= 0 ? '+' : ''}${g.toFixed(1)}%</td>`;
+      })()}
+      ${(() => {
+        if (s.ret20w == null) return '<td style="color:var(--muted)">—</td>';
+        const g = s.ret20w;
+        const gc = g >= 0 ? '#3fb950' : '#f85149';
+        return `<td style="color:${gc};font-weight:600">${g >= 0 ? '+' : ''}${g.toFixed(1)}%</td>`;
+      })()}
+      <td style="font-variant-numeric:tabular-nums">${(() => {
+        if (!s.max_high_7d || !s.last_close) return '<span style="color:var(--muted)">—</span>';
+        const dd = Math.max(0, (1 - s.last_close / s.max_high_7d) * 100);
+        const c = dd <= 2 ? '#3fb950' : dd <= 5 ? '#e3b341' : '#f85149';
+        return `<span style="color:${c}">${dd === 0 ? '0.0%' : '-' + dd.toFixed(1) + '%'}</span>`;
+      })()}</td>
+      <td style="font-variant-numeric:tabular-nums">${
+        s.atr_50d > 0
+          ? `<span style="color:#c9d1d9">${s.atr_50d.toFixed(2)}%</span>`
+          : `<span style="color:var(--muted)">—</span>`
+      }</td>
+      ${(() => {
+        if (s.pct10w == null) return `<td style="color:var(--muted);font-size:.72rem">${_closes52wFetching || !_closes52wCache.has(s.代码) ? '…' : '—'}</td>`;
+        const p = s.pct10w;
+        const c = p >= 80 ? '#f85149' : p >= 60 ? '#e3b341' : p >= 40 ? '#3fb950' : '#c9d1d9';
+        return `<td style="color:${c};font-weight:600">${p.toFixed(0)}%</td>`;
+      })()}
+      ${(() => {
+        if (s.pct20w == null) return `<td style="color:var(--muted);font-size:.72rem">${_closes52wFetching || !_closes52wCache.has(s.代码) ? '…' : '—'}</td>`;
+        const p = s.pct20w;
+        const c = p >= 80 ? '#f85149' : p >= 60 ? '#e3b341' : p >= 40 ? '#3fb950' : '#c9d1d9';
+        return `<td style="color:${c};font-weight:600">${p.toFixed(0)}%</td>`;
+      })()}
+      ${(() => {
+        if (s['涨跌幅'] == null) return '<td style="color:var(--muted)">—</td>';
+        const g = s['涨跌幅'];
+        const gc = g >= 0 ? '#3fb950' : '#f85149';
+        return `<td style="color:${gc};font-weight:600">${g >= 0 ? '+' : ''}${g.toFixed(2)}%</td>`;
+      })()}
+      <td style="padding:6px 12px">${makeSpark(s.trend_closes, sl)}</td>
+      <td style="padding:4px 8px">${
+        (s._penalty_tags && s._penalty_tags.length)
+          ? s._penalty_tags.map(t =>
+              t.title
+                ? `<span onmouseenter="showTagTip(this,'${t.title.replace(/'/g,'&#39;')}')"
+                         onmouseleave="hideCorrPanel()"
+                         onclick="event.stopPropagation()"
+                         style="font-size:.62rem;padding:1px 5px;border-radius:3px;margin-right:3px;
+                                background:${t.color}22;color:${t.color};white-space:nowrap;cursor:help">${t.label}</span>`
+                : `<span style="font-size:.62rem;padding:1px 5px;border-radius:3px;margin-right:3px;
+                                background:${t.color}22;color:${t.color};white-space:nowrap">${t.label}</span>`
+            ).join('')
+          : '<span style="color:var(--muted);font-size:.72rem">—</span>'
+      }</td>
+      <td style="font-size:.78rem;color:var(--muted)">${s.industry_board || '—'}</td>
+      <td><button class="btn-analyze" onclick="${btnClick}">图表</button></td>
+    </tr>`;
+  }).join('');
+
+  // ── Lazy-load 52-week data for visible rows ─────────────────────────────
+  // After initial render, fetch closes_52w / pct10w / pct20w for any rows
+  // that don't have it yet, then re-render to fill in correlation penalties
+  // and percentile columns.
+  const needFetch = rows.filter(s => !_closes52wCache.has(s.代码));
+  if (needFetch.length > 0 && !_closes52wFetching) {
+    _closes52wFetching = true;
+    _fetchCloses52w(rows).finally(() => {
+      _closes52wFetching = false;
+      renderTrendResults();   // re-render with full data
+    });
+  }
+}
+
+// ── sort handler ─────────────────────────────────────────────────────────────
+function setTrendSort(col) {
+  const keyMap = { slope:'slope', r2:'r2', score:'score', mkt:'mkt', pe:'pe', gain:'gain', ret20:'ret20', drawdown:'drawdown', atr:'atr', pct10w:'pct10w', pct20w:'pct20w', chgToday:'chgToday' };
+  const k = keyMap[col];
+  if (!k) return;
+  if (trendSortKey === k) {
+    trendSortDir = trendSortDir === 'asc' ? 'desc' : 'asc';
+  } else {
+    trendSortKey = k;
+    trendSortDir = 'desc';
+  }
+  renderTrendResults();
+}
+
+function clearTrendFilters() {
+  document.getElementById('tFSlopeMin').value    = '1.5';
+  document.getElementById('tFSlopeTopPct').value = '1';
+  document.getElementById('tFGainMax').value     = '2';
+  document.getElementById('tFR2').value         = '6';
+  document.getElementById('tFMktMin').value   = '500';
+  document.getElementById('tFMktMax').value   = '';
+  document.getElementById('tFExcludeLoss').checked    = true;
+  document.getElementById('tFExcludeReverse').checked  = true;
+  document.getElementById('tFPenalty20w').checked      = true;
+  document.getElementById('tExcludeBank').checked     = false;
+  document.getElementById('tExcludeCyclical').checked = false;
+  renderTrendResults();
+}
+
+// ── scan ─────────────────────────────────────────────────────────────────────
+function startTrendScan(force = false) {
+  clearTimeout(trendPollTimer);
+  const btn = document.getElementById('btnTrendScan');
+  btn.disabled = true;
+  btn.textContent = '扫描中…';
+
+  // Reset progress bar and table immediately
+  const fill  = document.getElementById('trendProgressFill');
+  const label = document.getElementById('trendProgressLabel');
+  if (fill)  fill.style.width  = '0%';
+  if (label) label.textContent = '';
+  document.getElementById('trendProgress').style.display = 'block';
+  if (force) {
+    trendAllResults = [];
+    document.getElementById('trendTbody').innerHTML =
+      `<tr><td colspan="14" style="text-align:center;padding:30px;color:var(--muted)">
+        <div class="spin" style="width:20px;height:20px;border-width:2px;margin:auto"></div>
+      </td></tr>`;
+  }
+
+  fetch('/api/trend/start', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({force}),
+  })
+  .then(r => r.json())
+  .then(d => {
+    if (d.error) { alert(d.error); btn.disabled = false; btn.textContent = '↻ 重新扫描'; return; }
+    pollTrendProgress();
+  })
+  .catch(() => { btn.disabled = false; btn.textContent = '↻ 重新扫描'; });
+}
+
+function pollTrendProgress() {
+  clearTimeout(trendPollTimer);
+  fetch('/api/trend/progress')
+    .then(r => r.json())
+    .then(d => {
+      const fill  = document.getElementById('trendProgressFill');
+      const label = document.getElementById('trendProgressLabel');
+      const pct   = d.total > 0 ? Math.round(d.idx / d.total * 100) : 0;
+      if (fill)  fill.style.width  = pct + '%';
+      if (label) label.textContent = `${d.idx} / ${d.total}`;
+
+      trendAllResults = d.results || [];
+      renderTrendResults();
+
+      if (d.done || (!d.running && d.idx > 0)) {
+        document.getElementById('trendProgress').style.display = 'none';
+        const btn = document.getElementById('btnTrendScan');
+        btn.disabled = false;
+        btn.textContent = '↻ 重新扫描';
+      } else if (d.running) {
+        trendPollTimer = setTimeout(pollTrendProgress, 1500);
+      }
+    })
+    .catch(() => { trendPollTimer = setTimeout(pollTrendProgress, 3000); });
+}
+
+// ── Mobile helpers ────────────────────────────────────────────────────────────
+const _isMobile = () => window.innerWidth < 768;
+
+function _renderMobileTrendCards(rows) {
+  return rows.map((s, i) => {
+    const sl  = s.trend_slope;
+    const slC = sl >= 3 ? '#3fb950' : sl >= 1.5 ? '#e3b341' : '#c9d1d9';
+    const sig = s.sigma_res ?? 99;
+    const sigC = sig <= 3 ? '#3fb950' : sig <= 6 ? '#e3b341' : '#c9d1d9';
+    const sc  = (s._adj_score ?? score(s)).toFixed(2);
+    const scC = parseFloat(sc) >= 0.5 ? '#3fb950' : parseFloat(sc) >= 0.2 ? '#e3b341' : '#c9d1d9';
+    const rawDd = s.max_high_7d && s.last_close ? Math.max(0, (1 - s.last_close / s.max_high_7d) * 100) : null;
+    const ddS = rawDd == null ? '—' : rawDd === 0 ? '0.0%' : `-${rawDd.toFixed(1)}%`;
+    const ddC = rawDd == null ? 'var(--muted)' : rawDd <= 2 ? '#3fb950' : rawDd <= 5 ? '#e3b341' : '#f85149';
+    const chg = s['涨跌幅'];
+    const chgS = chg == null ? '—' : (chg >= 0 ? `+${chg.toFixed(2)}%` : `${chg.toFixed(2)}%`);
+    const chgC = chg == null ? 'var(--muted)' : chg >= 0 ? '#f85149' : '#3fb950';
+    const pe   = s.pe > 0 ? s.pe.toFixed(1) : '—';
+    const peC  = s.pe > 0 && s.pe < 30 ? '#3fb950' : s.pe >= 30 && s.pe < 60 ? '#e3b341' : '#c9d1d9';
+    const atr  = s.atr_50d ? `${s.atr_50d.toFixed(2)}%` : '—';
+    const p10  = s.pct10w  != null ? `${s.pct10w.toFixed(0)}%`  : '…';
+    const p10C = s.pct10w  != null ? (s.pct10w >= 80 ? '#f85149' : s.pct10w >= 60 ? '#e3b341' : s.pct10w >= 40 ? '#3fb950' : '#c9d1d9') : 'var(--muted)';
+    const p20  = s.pct20w  != null ? `${s.pct20w.toFixed(0)}%`  : '…';
+    const p20C = s.pct20w  != null ? (s.pct20w >= 80 ? '#f85149' : s.pct20w >= 60 ? '#e3b341' : s.pct20w >= 40 ? '#3fb950' : '#c9d1d9') : 'var(--muted)';
+    const ret10 = s.trend_closes?.length ? `${((s.trend_closes[s.trend_closes.length-1]-1)*100).toFixed(1)}%` : '—';
+    const ret10C = s.trend_closes?.length ? ((s.trend_closes[s.trend_closes.length-1]-1)*100 >= 0 ? '#f85149' : '#3fb950') : 'var(--muted)';
+    const ret20 = s.ret20w != null ? `${s.ret20w >= 0 ? '+' : ''}${s.ret20w.toFixed(1)}%` : '—';
+    const ret20C = s.ret20w != null ? (s.ret20w >= 0 ? '#f85149' : '#3fb950') : 'var(--muted)';
+
+    const typeBadge = s.is_etf
+      ? `<span class="tm-badge" style="background:rgba(88,166,255,.2);color:#58a6ff">ETF</span>`
+      : s.is_hk ? `<span class="tm-badge" style="background:rgba(255,200,50,.15);color:#ffc832">港</span>` : '';
+
+    // Penalty badges
+    const badges = (s._penalty_tags || []).map(t =>
+      `<span class="tm-badge" title="${t.title||''}" style="background:rgba(249,115,22,.15);color:#f97316">${t.label}</span>`
+    ).join('');
+
+    // Mini sparkline SVG from trend_closes
+    let sparkSvg = '';
+    if (s.trend_closes && s.trend_closes.length > 1) {
+      const vals = s.trend_closes;
+      const mn = Math.min(...vals), mx = Math.max(...vals), rng = mx - mn || 1;
+      const pts = vals.map((v, i) => `${(i/(vals.length-1)*56).toFixed(1)},${(12-(v-mn)/rng*12).toFixed(1)}`).join(' ');
+      const lc = vals[vals.length-1] >= vals[0] ? '#3fb950' : '#f85149';
+      sparkSvg = `<svg viewBox="0 0 56 14" style="width:56px;height:14px;flex-shrink:0"><polyline points="${pts}" fill="none" stroke="${lc}" stroke-width="1.5"/></svg>`;
+    }
+
+    const rowClick = s.is_etf || s.is_hk
+      ? `window.open('https://quote.eastmoney.com/${s._tc||s.代码}.html','_blank')`
+      : `openModal('${s.代码}','${s.名称}')`;
+
+    return `<div class="tm-card" onclick="${rowClick}">
+      <div class="tm-top">
+        <div class="tm-left">
+          <div class="tm-rank">#${s._new_rank} ${typeBadge}</div>
+          <div class="tm-name">${s.名称}</div>
+          <div class="tm-code">${s.代码} · ${s.industry_board||''}</div>
+        </div>
+        <div class="tm-right">
+          <div class="tm-chg" style="color:${chgC}">${chgS}</div>
+          <div class="tm-price">${s.last_close ? s.last_close.toFixed(2) : '—'}</div>
+        </div>
+      </div>
+      <div class="tm-metrics">
+        <div class="tm-m"><div class="tm-mv" style="color:${slC}">+${sl.toFixed(2)}%</div><div class="tm-ml">斜率/周</div></div>
+        <div class="tm-m"><div class="tm-mv" style="color:${sigC}">${sig.toFixed ? sig.toFixed(1) : sig}%</div><div class="tm-ml">σ_res</div></div>
+        <div class="tm-m"><div class="tm-mv" style="color:${scC}">${sc}</div><div class="tm-ml">得分</div></div>
+        <div class="tm-m"><div class="tm-mv" style="color:${ddC}">${ddS}</div><div class="tm-ml">回撤</div></div>
+      </div>
+      <div class="tm-row2">
+        <div class="tm-m"><div class="tm-mv" style="color:${peC}">${pe}</div><div class="tm-ml">PE</div></div>
+        <div class="tm-m"><div class="tm-mv" style="color:${ret10C}">${ret10}</div><div class="tm-ml">10周涨幅</div></div>
+        <div class="tm-m"><div class="tm-mv" style="color:${ret20C}">${ret20}</div><div class="tm-ml">20周涨幅</div></div>
+        <div class="tm-m" style="align-items:flex-end;padding-right:4px">${sparkSvg}</div>
+      </div>
+      <div class="tm-row2" style="border-top:none;padding-top:3px">
+        <div class="tm-m"><div class="tm-mv" style="color:${atr==='—'?'var(--muted)':'#c9d1d9'}">${atr}</div><div class="tm-ml">ATR</div></div>
+        <div class="tm-m"><div class="tm-mv" style="color:${p10C}">${p10}</div><div class="tm-ml">10周分位</div></div>
+        <div class="tm-m"><div class="tm-mv" style="color:${p20C}">${p20}</div><div class="tm-ml">20周分位</div></div>
+        <div class="tm-m"><div class="tm-mv" style="color:var(--muted);font-size:10px">${s.市值亿?.toFixed(0)||'—'}亿</div><div class="tm-ml">市值</div></div>
+      </div>
+      ${badges ? `<div class="tm-badges">${badges}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+// Re-render on orientation change
+window.addEventListener('resize', () => {
+  if (trendAllResults.length) renderTrendResults();
+});
+</script>
+</body>
+</html>
