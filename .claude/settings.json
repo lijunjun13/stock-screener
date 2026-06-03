@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd /Users/bytedance/repos/stock-screener && if git diff --quiet && git diff --cached --quiet && [ -z \"$(git ls-files --others --exclude-standard app.py templates/ requirements.txt Procfile README.md 2>/dev/null)\" ]; then exit 0; fi && git add app.py templates/ requirements.txt Procfile README.md 2>/dev/null || true && git commit -m \"auto-sync $(date '+%Y-%m-%d %H:%M')\" 2>&1 && git push github 2>&1 || true",
+            "timeout": 30,
+            "statusMessage": "同步到 GitHub..."
+          }
+        ]
+      }
+    ]
+  }
+}
