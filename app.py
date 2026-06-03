@@ -712,16 +712,19 @@ def _fetch_kline_hfq(tc_code: str, years: int = 10) -> tuple[list[str], list[flo
 
     # ── 历史段（10年 → cutoff），TTL 50天 ────────────────────────────────────
     hist = _get(f"kline_hist_{tc_code}", ttl=86400 * 50)
-    # 若缓存起始日期比预期早不到 (years-1) 年，说明是旧的短周期缓存，强制重取
-    if hist and hist.get("dates"):
-        min_ok_start = (today - timedelta(days=(years - 1) * 365)).strftime("%Y-%m-%d")
-        if hist["dates"][0] > min_ok_start:
+    # 若缓存中记录的 hist_start 比当前请求的更晚（说明是旧的短周期缓存），强制重取。
+    # 注：比较的是"请求时的起始日期"而非 dates[0]，避免新上市股因上市日期
+    # 晚于阈值而被反复清缓存（dates[0] = 上市日 是正确数据，不应触发失效）。
+    if hist:
+        cached_start = hist.get("hist_start", "2022-01-01")  # 旧缓存无此字段，默认视为4年
+        if cached_start > hist_start:
             hist = None
     if not hist:
         cutoff = (today - timedelta(days=50)).strftime("%Y-%m-%d")
         h_dates, h_closes = _fetch_kline_range(tc_code, hist_start, cutoff)
         if h_dates:
-            hist = {"dates": h_dates, "closes": h_closes, "cutoff": cutoff}
+            hist = {"dates": h_dates, "closes": h_closes, "cutoff": cutoff,
+                    "hist_start": hist_start}
             _set(f"kline_hist_{tc_code}", hist)
             # 历史段更新，清除近期段让其从新 cutoff 重拉
             if _redis:

@@ -1446,25 +1446,26 @@ function drawChart(d, name, code) {
         lineWidth: 1, lineStyle: LS.Dotted, axisLabelVisible: true });
     }
 
-    // ── 同步两图的 timeScale（滚动/缩放联动）────────────────────────────────
-    // 以 priceChart 为主：priceChart → peChart 单向同步触发；
-    // 用户在 peChart 拖动时也回写 priceChart，保持联动。
+    // ── 同步两图的 timeScale（用时间范围同步，而非逻辑索引）────────────────────
+    // 逻辑索引在两图间条数不同（price 10年 vs PE 可能只有 5-6 年），
+    // 用同一 logical range 同步会让 PE 图把 priceChart 的视窗压短。
+    // 改用 subscribeVisibleTimeRangeChange + setVisibleRange 按日期对齐。
     let _syncLock = false;
-    priceChart.timeScale().subscribeVisibleLogicalRangeChange(range => {
+    priceChart.timeScale().subscribeVisibleTimeRangeChange(range => {
       if (_syncLock || range === null) return;
       _syncLock = true;
-      peChart.timeScale().setVisibleLogicalRange(range);
+      peChart.timeScale().setVisibleRange(range);
       _syncLock = false;
     });
-    peChart.timeScale().subscribeVisibleLogicalRangeChange(range => {
+    peChart.timeScale().subscribeVisibleTimeRangeChange(range => {
       if (_syncLock || range === null) return;
       _syncLock = true;
-      priceChart.timeScale().setVisibleLogicalRange(range);
+      priceChart.timeScale().setVisibleRange(range);
       _syncLock = false;
     });
   }
 
-  // minBarSpacing 已降至 0.1，fitContent 可以完整展示 10 年日 K
+  // fitContent 展示全部可用数据（minBarSpacing 已降至 0.1 允许日 K 极窄）
   priceChart.timeScale().fitContent();
 }
 
