@@ -112,6 +112,13 @@
   .wl-add-cancel { background: none; border: 1px solid #30363d; border-radius: 6px;
                    color: #8b949e; font-size: .8rem; padding: 4px 8px; cursor: pointer; }
   .wl-add-cancel:hover { border-color: #8b949e; }
+  /* +/- watchlist toggle in main table */
+  .btn-wl { background: none; border: none; cursor: pointer; color: #8b949e;
+            font-size: .88rem; font-weight: 700; padding: 0 4px; vertical-align: middle;
+            line-height: 1; transition: color .12s; }
+  .btn-wl:hover { color: #3fb950; }
+  .btn-wl.in-wl { color: #58a6ff; }
+  .btn-wl.in-wl:hover { color: #f85149; }
 
   /* table */
   .tbl-wrap { overflow-x: auto; }
@@ -882,13 +889,18 @@ function renderTable() {
   if (!view.length) { setTbody(`<tr><td colspan="7" style="text-align:center;padding:30px;color:var(--muted)">无匹配结果</td></tr>`); return; }
 
   const rows = view.map((s, i) => {
-    const chg  = s['涨跌幅'];
-    const cls  = chg >= 0 ? 'pos' : 'neg';
-    const sign = chg >= 0 ? '+' : '';
+    const chg   = s['涨跌幅'];
+    const cls   = chg >= 0 ? 'pos' : 'neg';
+    const sign  = chg >= 0 ? '+' : '';
+    const inWl  = _wlStocks.some(w => w.code === s['代码']);
+    const wlCls = inWl ? 'btn-wl in-wl' : 'btn-wl';
+    const wlTip = inWl ? '移出自选' : '加入自选';
+    const wlChr = inWl ? '−' : '+';
     return `<tr onclick="openModal('${s['代码']}','${s['名称']}')">
       <td class="rank">${i+1}</td>
       <td class="code">${s['代码']}</td>
-      <td>${s['名称']}</td>
+      <td>${s['名称']}<button class="${wlCls}" title="${wlTip}"
+          onclick="event.stopPropagation();wlToggle('${s['代码']}','${s['名称'].replace(/'/g,"\\'")}')">${wlChr}</button></td>
       <td><span class="mktcap">${s['市值亿'].toFixed(0)}</span></td>
       <td>${s['最新价']}</td>
       <td class="${cls}">${sign}${chg.toFixed(2)}%</td>
@@ -3430,7 +3442,7 @@ async function wlLoad() {
   try {
     const r = await fetch('/api/watchlist');
     const d = await r.json();
-    if (d.success) { _wlStocks = d.stocks; wlRender(); }
+    if (d.success) { _wlStocks = d.stocks; wlRender(); renderTable(); }
   } catch (e) {}
 }
 
@@ -3487,7 +3499,25 @@ async function wlConfirmAdd() {
 async function wlRemove(tcCode) {
   const r = await fetch(`/api/watchlist/remove/${encodeURIComponent(tcCode)}`, {method: 'DELETE'});
   const d = await r.json();
-  if (d.success) { _wlStocks = _wlStocks.filter(s => s.tc_code !== tcCode); wlRender(); }
+  if (d.success) { _wlStocks = _wlStocks.filter(s => s.tc_code !== tcCode); wlRender(); renderTable(); }
+}
+
+async function wlToggle(code, name) {
+  const existing = _wlStocks.find(s => s.code === code);
+  if (existing) {
+    await wlRemove(existing.tc_code);
+  } else {
+    const r = await fetch('/api/watchlist/add', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({code}),
+    });
+    const d = await r.json();
+    if (!d.success) { alert(d.error || '添加失败'); return; }
+    _wlStocks = [..._wlStocks, d.stock];
+    wlRender();
+    renderTable();
+  }
 }
 
 wlLoad();
