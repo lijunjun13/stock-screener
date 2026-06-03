@@ -3749,8 +3749,12 @@ function renderTrendResults() {
     return true;
   };
 
-  const wlPinned  = trendAllResults.filter(s => _wlCodeSet.has(s.代码));
-  let rows = trendAllResults.filter(s => !_wlCodeSet.has(s.代码) && _passFilter(s));
+  const wlPinned = trendAllResults.filter(s => _wlCodeSet.has(s.代码));
+  // 自选股绕过过滤，与其他股票一起正常排序
+  let rows = [
+    ...wlPinned,
+    ...trendAllResults.filter(s => !_wlCodeSet.has(s.代码) && _passFilter(s)),
+  ];
 
   // Score = slope^1.1 / (1 + σ_res): 斜率取 1.1 次方后再除噪声项
   const score = s => s.trend_slope > 0
@@ -3907,13 +3911,6 @@ function renderTrendResults() {
     });
     rows.sort((a, b) => b._adj_score - a._adj_score);
   }
-  // 自选股置顶（按得分排序后插到最前面，不参与 _orig_rank / penalty 计算）
-  wlPinned.forEach(s => {
-    const c = _closes52wCache.get(s.代码);
-    if (c && s.pct10w == null) { s.closes_52w = c.closes_52w; s.pct10w = c.pct10w; s.pct20w = c.pct20w; }
-  });
-  wlPinned.sort((a, b) => score(b) - score(a));
-  rows = [...wlPinned, ...rows];
   rows.forEach((s, i) => { s._new_rank = i + 1; });    // rank after penalty
   window._trendRows  = rows;        // expose for correlation hover panel
   window._trendLrMap = _lrMap;
