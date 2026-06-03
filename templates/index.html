@@ -1447,6 +1447,8 @@ function drawChart(d, name, code) {
     }
 
     // ── 同步两图的 timeScale（滚动/缩放联动）────────────────────────────────
+    // 以 priceChart 为主：priceChart → peChart 单向同步触发；
+    // 用户在 peChart 拖动时也回写 priceChart，保持联动。
     let _syncLock = false;
     priceChart.timeScale().subscribeVisibleLogicalRangeChange(range => {
       if (_syncLock || range === null) return;
@@ -1460,10 +1462,9 @@ function drawChart(d, name, code) {
       priceChart.timeScale().setVisibleLogicalRange(range);
       _syncLock = false;
     });
-
-    peChart.timeScale().fitContent();
   }
 
+  // 以 priceChart.fitContent() 为准（覆盖完整10年数据），同步传播到 peChart
   priceChart.timeScale().fitContent();
 }
 
