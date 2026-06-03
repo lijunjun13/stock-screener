@@ -649,20 +649,20 @@ def _fetch_realtime_price(tc_code: str) -> float | None:
     return None
 
 
-def _fetch_kline_hfq(tc_code: str, years: int = 10) -> tuple[list[str], list[float]]:
-    today = datetime.now()
-    end   = today.strftime("%Y-%m-%d")
-    boundaries = []
-    t = today - timedelta(days=years * 365 + 10)
-    while t < today:
-        boundaries.append(t.strftime("%Y-%m-%d"))
-        t += timedelta(days=900)
-    boundaries.append(end)
-
+def _fetch_kline_range(tc_code: str, start: str, end: str) -> tuple[list[str], list[float]]:
+    """从腾讯接口拉取指定日期范围的后复权日线，内部按900天分块请求。"""
     base = (
         "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get"
         "?param={code},day,{s},{e},700,hfq"
     )
+    boundaries: list[str] = []
+    t = datetime.strptime(start, "%Y-%m-%d")
+    end_dt = datetime.strptime(end, "%Y-%m-%d")
+    while t < end_dt:
+        boundaries.append(t.strftime("%Y-%m-%d"))
+        t += timedelta(days=900)
+    boundaries.append(end)
+
     dates: list[str] = []
     closes: list[float] = []
     for i in range(len(boundaries) - 1):
@@ -686,6 +686,41 @@ def _fetch_kline_hfq(tc_code: str, years: int = 10) -> tuple[list[str], list[flo
             if not dates or d > dates[-1]:
                 dates.append(d)
                 closes.append(float(row[2]))
+    return dates, closes
+
+
+def _fetch_kline_hfq(tc_code: str, years: int = 10) -> tuple[list[str], list[float]]:
+    """冷热分离缓存：历史段（10年→50天前）缓存50天，近期段（50天内）缓存24小时。"""
+    today   = datetime.now()
+    end     = today.strftime("%Y-%m-%d")
+    cutoff  = (today - timedelta(days=50)).strftime("%Y-%m-%d")
+    hist_start = (today - timedelta(days=years * 365 + 10)).strftime("%Y-%m-%d")
+
+    # ── 历史段：TTL 50天 ──────────────────────────────────────────────────────
+    hist = _get(f"kline_hist_{tc_code}", ttl=86400 * 50)
+    if not hist:
+        h_dates, h_closes = _fetch_kline_range(tc_code, hist_start, cutoff)
+        if h_dates:
+            hist = {"dates": h_dates, "closes": h_closes}
+            _set(f"kline_hist_{tc_code}", hist)
+
+    # ── 近期段：TTL 24小时 ────────────────────────────────────────────────────
+    recent = _get(f"kline_recent_{tc_code}", ttl=86400)
+    if not recent:
+        r_dates, r_closes = _fetch_kline_range(tc_code, cutoff, end)
+        if r_dates:
+            recent = {"dates": r_dates, "closes": r_closes}
+            _set(f"kline_recent_{tc_code}", recent)
+
+    # ── 合并，按日期去重 ──────────────────────────────────────────────────────
+    dates:  list[str]   = list(hist["dates"])   if hist   else []
+    closes: list[float] = list(hist["closes"])  if hist   else []
+    seen = set(dates)
+    if recent:
+        for d, c in zip(recent["dates"], recent["closes"]):
+            if d not in seen:
+                dates.append(d)
+                closes.append(c)
     return dates, closes
 
 
