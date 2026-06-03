@@ -1464,8 +1464,15 @@ function drawChart(d, name, code) {
     });
   }
 
-  // 以 priceChart.fitContent() 为准（覆盖完整10年数据），同步传播到 peChart
-  priceChart.timeScale().fitContent();
+  // 用 setVisibleRange 直接指定日期范围，绕过 minBarSpacing 对 fitContent 的限制
+  if (d.dates && d.dates.length > 0) {
+    priceChart.timeScale().setVisibleRange({
+      from: d.dates[0],
+      to:   d.dates[d.dates.length - 1],
+    });
+  } else {
+    priceChart.timeScale().fitContent();
+  }
 }
 
 // ── year window toggle ────────────────────────────────────────────────────────
