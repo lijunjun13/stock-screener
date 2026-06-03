@@ -1387,7 +1387,9 @@ function drawChart(d, name, code) {
   // 工具函数
   function _mkLine(color, width, style, opts = {}) {
     return priceChart.addLineSeries({ color, lineWidth: width, lineStyle: style ?? LS.Solid,
-      priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, ...opts });
+      priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+      autoscaleInfoProvider: () => null,   // 不参与 Y 轴自动缩放，以价格线为准
+      ...opts });
   }
   function _setD(series, dates, vals) {
     if (!dates || !vals) return;
