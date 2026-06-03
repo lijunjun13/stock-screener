@@ -3442,7 +3442,13 @@ async function wlLoad() {
   try {
     const r = await fetch('/api/watchlist');
     const d = await r.json();
-    if (d.success) { _wlStocks = d.stocks; wlRender(); renderTable(); }
+    if (d.success) {
+      _wlStocks = d.stocks;
+      wlRender();
+      renderTable();
+      // 如果趋势交易结果已渲染，也同步刷新
+      if (typeof renderTrendResults === 'function' && trendAllResults.length) renderTrendResults();
+    }
   } catch (e) {}
 }
 
@@ -3946,6 +3952,11 @@ function renderTrendResults() {
       ? `<span title="7日最高价低于30日最高价，动量惩罚×0.15" style="font-size:.65rem;color:#f85149;margin-left:4px">⚡</span>`
       : '';
 
+    const inWlT  = _wlStocks.some(w => w.code === s.代码);
+    const wlBtnT = `<button class="${inWlT ? 'btn-wl in-wl' : 'btn-wl'}"
+      onclick="event.stopPropagation();wlToggle('${s.代码}','${s.名称.replace(/'/g,"\\'")}')"
+      title="${inWlT ? '移出自选' : '加入自选'}">${inWlT ? '−' : '+'}</button>`;
+
     // Type badges
     const typeBadge = s.is_etf
       ? `<span style="font-size:.6rem;padding:1px 4px;border-radius:3px;background:rgba(88,166,255,.2);color:#58a6ff;margin-left:4px">ETF</span>`
@@ -3964,7 +3975,7 @@ function renderTrendResults() {
     return `<tr onclick="${rowClick}">
       <td class="rank">${s._new_rank}${rankBadge}</td>
       <td class="code">${s.代码}${typeBadge}</td>
-      <td style="white-space:nowrap">${s.名称}${momBadge}<span
+      <td style="white-space:nowrap">${s.名称}${momBadge}${wlBtnT}<span
         onmouseenter="showCorrPanel('${s.代码}',this)"
         onmouseleave="hideCorrPanel()"
         onclick="event.stopPropagation()"
