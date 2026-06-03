@@ -3678,6 +3678,22 @@ function _pearson(a, b) {
 function openTrend() {
   document.getElementById('trendOverlay').classList.add('open');
   fetch('/api/trend/stocks').catch(() => {});
+  if (!trendAllResults.length) {
+    try {
+      const raw = localStorage.getItem('trend_results_v2');
+      if (raw) {
+        const obj = JSON.parse(raw);
+        if (Date.now() - obj.ts < 24 * 3600 * 1000 && obj.data && obj.data.length) {
+          trendAllResults = obj.data;
+          renderTrendResults();
+          const age = Math.round((Date.now() - obj.ts) / 60000);
+          document.getElementById('trendProgressLabel').textContent = `上次完整扫描（${age}分钟前）`;
+          const btn = document.getElementById('btnTrendScan');
+          if (btn) { btn.disabled = false; btn.textContent = '↻ 重新扫描'; }
+        }
+      }
+    } catch(e) {}
+  }
 }
 function closeTrend(ev) {
   if (!ev || ev.target === document.getElementById('trendOverlay')) {
@@ -4121,6 +4137,7 @@ function clearTrendFilters() {
 // ── scan ─────────────────────────────────────────────────────────────────────
 function startTrendScan(force = false) {
   clearTimeout(trendPollTimer);
+  try { localStorage.removeItem('trend_results_v2'); } catch(e) {}
   const btn = document.getElementById('btnTrendScan');
   btn.disabled = true;
   btn.textContent = '扫描中…';
@@ -4171,6 +4188,10 @@ function pollTrendProgress() {
         const btn = document.getElementById('btnTrendScan');
         btn.disabled = false;
         btn.textContent = '↻ 重新扫描';
+        // 只在扫描完成后才存，避免中途结果误导
+        if (d.done) try {
+          localStorage.setItem('trend_results_v2', JSON.stringify({ts: Date.now(), data: trendAllResults}));
+        } catch(e) {}
       } else if (d.running) {
         trendPollTimer = setTimeout(pollTrendProgress, 1500);
       }
