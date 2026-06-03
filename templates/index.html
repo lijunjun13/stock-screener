@@ -1148,175 +1148,126 @@ async function _loadMoreKline(divId) {
 }
 
 function _drawIntraday(divId, data) {
-  if (!data.success || !data.times || !data.times.length) {
-    _stError(divId, '暂无分时数据'); return;
-  }
+  if (!data.success || !data.times?.length) { _stError(divId, '暂无分时数据'); return; }
 
-  // ── Fix: 清除旧内容（Plotly 追加而非替换 innerHTML）────────────────────
   const divEl = document.getElementById(divId);
   divEl.innerHTML = '';
 
+  // 销毁旧实例
+  const prev = _lwcState.get(divId);
+  if (prev?.chart) try { prev.chart.remove(); } catch(_) {}
+
   const { times, prices, volumes = [], prev_close } = data;
-  const n = times.length;
+  const n   = times.length;
   const ref = prev_close > 0 ? prev_close : prices[0];
 
-  // ── VWAP ─────────────────────────────────────────────────────────────────
+  // VWAP
   const vwap = (() => {
-    let cumAmt = 0, cumVol = 0;
-    return prices.map((p, i) => {
-      const v = volumes[i] || 0;
-      cumAmt += p * v; cumVol += v;
-      return cumVol > 0 ? cumAmt / cumVol : p;
-    });
+    let ca = 0, cv = 0;
+    return prices.map((p, i) => { const v = volumes[i]||0; ca+=p*v; cv+=v; return cv>0?ca/cv:p; });
   })();
 
-  const volColors = prices.map((p, i) =>
-    p >= (i === 0 ? ref : prices[i - 1])
-      ? 'rgba(220,60,60,0.75)' : 'rgba(40,170,80,0.75)'
-  );
-  const above  = prices.map(p => Math.max(p, ref));
-  const below  = prices.map(p => Math.min(p, ref));
-  const pctVals = ref > 0 ? prices.map(p => +((p / ref - 1) * 100).toFixed(2)) : null;
+  // 时间戳（用今天日期 + 分时时间合成 Unix 秒）
+  const today = new Date();
+  function toSec(t) {
+    const [h, m] = t.split(':').map(Number);
+    return Math.floor(new Date(today.getFullYear(), today.getMonth(), today.getDate(), h, m).getTime() / 1000);
+  }
 
-  // ── traces ───────────────────────────────────────────────────────────────
-  // 填充 trace 用 hoverinfo:'skip'（不参与 hover 检测）
-  // 价格、均价、成交量 改为 hoverinfo:'none'：检测 hover 但不显示 tooltip
-  // ── 这样 spike 线才会触发，plotly_hover 事件才会触发 ───────────────────
-  const traces = [
-    // 上涨填充（green）
-    { type:'scatter', mode:'none', x:times, y:Array(n).fill(ref),
-      showlegend:false, hoverinfo:'skip', yaxis:'y' },
-    { type:'scatter', mode:'none', x:times, y:above,
-      fill:'tonexty', fillcolor:'rgba(39,174,96,0.22)',
-      showlegend:false, hoverinfo:'skip', yaxis:'y' },
-    // 下跌填充（red）
-    { type:'scatter', mode:'none', x:times, y:below,
-      showlegend:false, hoverinfo:'skip', yaxis:'y' },
-    { type:'scatter', mode:'none', x:times, y:Array(n).fill(ref),
-      fill:'tonexty', fillcolor:'rgba(220,60,60,0.18)',
-      showlegend:false, hoverinfo:'skip', yaxis:'y' },
-    // 价格线
-    { type:'scatter', mode:'lines', x:times, y:prices,
-      line:{ color:'#e05555', width:1.6 }, name:'价格',
-      yaxis:'y', hoverinfo:'none' },
-    // 均价线（橙）
-    { type:'scatter', mode:'lines', x:times, y:vwap,
-      line:{ color:'#e3a148', width:1.4 }, connectgaps:true,
-      name:'均价', yaxis:'y', hoverinfo:'none' },
-    // 成交量
-    { type:'bar', x:times, y:volumes.map(v => +(v/100).toFixed(2)),
-      marker:{ color:volColors }, name:'量(百手)',
-      yaxis:'y3', hoverinfo:'none' },
-    // 昨收参考线（skip — 不需要 hover）
-    { type:'scatter', mode:'lines',
-      x:[times[0], times[n-1]], y:[ref, ref],
-      line:{ color:'rgba(255,255,255,0.3)', width:1, dash:'dot' },
-      name:'昨收', yaxis:'y', hoverinfo:'skip' },
-    // 涨跌幅右轴同步（仅用于刻度对齐）
-    ...(pctVals ? [{ type:'scatter', mode:'none', x:times, y:pctVals,
-      yaxis:'y2', showlegend:false, hoverinfo:'skip' }] : []),
-  ];
-
-  // ── layout ───────────────────────────────────────────────────────────────
-  const allP = prices.filter(Number.isFinite);
-  const pMin = Math.min(...allP), pMax = Math.max(...allP);
-  const pad  = (pMax - pMin) * 0.15 || pMin * 0.005;
-  const yLo  = pMin - pad, yHi = pMax + pad;
-  const pctRange = ref > 0 ? [(yLo/ref-1)*100, (yHi/ref-1)*100] : null;
-
-  const axBase = { color:'#8b949e', gridcolor:'rgba(255,255,255,.07)',
-                   tickfont:{ size:10 }, zeroline:false };
-  const layout = {
-    paper_bgcolor:'transparent', plot_bgcolor:'transparent',
-    margin:{ l:52, r:52, t:4, b:28 },
-    hovermode:'x',
-    hoverdistance: 30,
-    grid:{ rows:2, columns:1, roworder:'top to bottom',
-           subplots:[['xy'],['xy3']], ygap:0.05 },
-    xaxis:  { ...axBase, tickfont:{size:9}, nticks:8, domain:[0,1] },
-    xaxis3: { ...axBase, tickfont:{size:9}, matches:'x', domain:[0,1] },
-    yaxis:  { ...axBase, range:[yLo,yHi], tickformat:'.2f', domain:[0.27,1] },
-    yaxis2: { ...axBase, overlaying:'y', side:'right', range:pctRange,
-              tickformat:'+.2f', ticksuffix:'%', showgrid:false },
-    yaxis3: { ...axBase, domain:[0,0.21], showgrid:false, tickfont:{size:9} },
-    legend: { font:{size:10,color:'#8b949e'}, orientation:'h',
-              y:1.03, x:0, bgcolor:'transparent' },
-    font:{ family:'inherit' },
-  };
-
-  Plotly.newPlot(divId, traces, layout, { responsive:true, displayModeBar:false });
-
-  // ── SVG 十字线 overlay ───────────────────────────────────────────────────
-  const svgNS = 'http://www.w3.org/2000/svg';
-  const crossSvg = document.createElementNS(svgNS, 'svg');
-  crossSvg.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible;';
-  const lineV = document.createElementNS(svgNS, 'line');
-  const lineH = document.createElementNS(svgNS, 'line');
-  [lineV, lineH].forEach(l => {
-    l.setAttribute('stroke', 'rgba(160,160,160,0.55)');
-    l.setAttribute('stroke-width', '1.5');
-    l.setAttribute('stroke-dasharray', '4,3');
-    l.style.display = 'none';
-    crossSvg.appendChild(l);
+  // ── chart（主价格面板 + 成交量面板）──────────────────────────────────────
+  const chart = LightweightCharts.createChart(divEl, {
+    width:  divEl.clientWidth  || 400,
+    height: divEl.clientHeight || 300,
+    layout: { background: { color: 'transparent' }, textColor: '#8b949e' },
+    grid:   { vertLines: { color: 'rgba(255,255,255,.06)' }, horzLines: { color: 'rgba(255,255,255,.06)' } },
+    crosshair: {
+      vertLine: { color: 'rgba(160,160,160,.55)', style: 3, width: 1.5, labelBackgroundColor: '#21262d' },
+      horzLine: { color: 'rgba(160,160,160,.55)', style: 3, width: 1.5, labelBackgroundColor: '#21262d' },
+    },
+    leftPriceScale:  { visible: true,  borderColor: 'rgba(255,255,255,.1)' },
+    rightPriceScale: { visible: true,  borderColor: 'rgba(255,255,255,.1)',
+                       ticksVisible: true,
+                       scaleMargins: { top: 0.05, bottom: 0.25 } },
+    timeScale: { borderColor: 'rgba(255,255,255,.1)', timeVisible: true, secondsVisible: false,
+                 fixLeftEdge: true, fixRightEdge: true },
+    handleScroll: false,
+    handleScale:  false,
   });
-  divEl.style.position = 'relative';
-  divEl.appendChild(crossSvg);
 
-  // ── 顶部信息栏 ──────────────────────────────────────────────────────────
-  const barEl = document.getElementById('stIntradayBar');
-  if (!barEl) return;
+  // 基准线（Baseline series）：价格 + 颜色填充
+  const baseline = chart.addBaselineSeries({
+    priceScaleId: 'right',
+    baseValue:    { type: 'price', price: ref },
+    topLineColor:     '#f85149', topFillColor1:    'rgba(248,81,73,0.25)', topFillColor2:    'rgba(248,81,73,0.04)',
+    bottomLineColor:  '#3fb950', bottomFillColor1: 'rgba(63,185,80,0.04)', bottomFillColor2: 'rgba(63,185,80,0.25)',
+    lineWidth: 1.5, priceLineVisible: false, lastValueVisible: false,
+  });
+  baseline.setData(prices.map((p, i) => ({ time: toSec(times[i]), value: p })));
 
-  function _cls(v) { return v > 0 ? 'up' : v < 0 ? 'dn' : 'neu'; }
-  function _fmt(v, d=2) { return Number.isFinite(v) ? v.toFixed(d) : '--'; }
+  // 昨收虚线
+  baseline.createPriceLine({ price: ref, color: 'rgba(200,200,200,0.35)', lineWidth: 1,
+    lineStyle: LightweightCharts.LineStyle.Dashed, axisLabelVisible: false });
 
-  function _renderBar(idx) {
-    const i   = (idx !== undefined && idx >= 0 && idx < n) ? idx : n - 1;
-    const p   = prices[i];
-    const vw  = vwap[i];
+  // 均价线（VWAP）
+  const vwapLine = chart.addLineSeries({
+    priceScaleId: 'right', color: '#e3a148', lineWidth: 1.4,
+    priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+  });
+  vwapLine.setData(vwap.map((v, i) => ({ time: toSec(times[i]), value: v })));
+
+  // 右轴显示涨跌幅（%）
+  const pctLine = chart.addLineSeries({
+    priceScaleId: 'left', color: 'transparent', lineWidth: 0,
+    priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+    priceFormat: { type: 'custom', formatter: v => (v >= 0 ? '+' : '') + v.toFixed(2) + '%' },
+  });
+  chart.priceScale('left').applyOptions({ scaleMargins: { top: 0.05, bottom: 0.25 } });
+  pctLine.setData(prices.map((p, i) => ({ time: toSec(times[i]), value: ref > 0 ? (p/ref-1)*100 : 0 })));
+
+  // 成交量（底部）
+  const volSeries = chart.addHistogramSeries({
+    priceScaleId: 'vol', priceFormat: { type: 'volume' },
+  });
+  chart.priceScale('vol').applyOptions({ scaleMargins: { top: 0.78, bottom: 0 } });
+  volSeries.setData(volumes.map((v, i) => ({
+    time:  toSec(times[i]),
+    value: +(v / 100).toFixed(2),
+    color: prices[i] >= (i === 0 ? ref : prices[i-1]) ? 'rgba(220,60,60,0.75)' : 'rgba(40,170,80,0.75)',
+  })));
+
+  _lwcState.set(divId, { chart });
+  const ro = new ResizeObserver(() => chart.applyOptions({ width: divEl.clientWidth, height: divEl.clientHeight }));
+  ro.observe(divEl);
+
+  // ── info bar ─────────────────────────────────────────────────────────────
+  const barEl = document.getElementById(divId.replace('Div', 'Bar'));
+  function _fmt(v, d=2) { return isFinite(v) ? (+v).toFixed(d) : '--'; }
+  function _cls(v)      { return v > 0 ? 'up' : v < 0 ? 'dn' : 'neu'; }
+
+  function _renderBar(i) {
+    if (!barEl) return;
+    i = (i != null && i >= 0 && i < n) ? i : n - 1;
+    const p = prices[i], vw = vwap[i];
     const chg = ref > 0 ? p - ref : 0;
     const pct = ref > 0 ? (p / ref - 1) * 100 : 0;
     const cumVol = volumes.slice(0, i + 1).reduce((a, b) => a + b, 0);
     const cumAmt = prices.slice(0, i + 1).reduce((s, pp, j) => s + pp * (volumes[j] || 0), 0);
     const cls = _cls(chg);
     barEl.innerHTML =
-      `<span>价</span><b class="${cls}">${_fmt(p, 2)}</b>` +
-      `<span>均</span><b>${_fmt(vw, 2)}</b>` +
-      `<span>涨</span><b class="${cls}">${chg >= 0 ? '+' : ''}${_fmt(chg, 2)}</b>` +
-      `<b class="${cls}">${pct >= 0 ? '+' : ''}${_fmt(pct, 2)}%</b>` +
-      `<span>量</span><b>${(cumVol / 100).toFixed(2)}万手</b>` +
-      `<span>额</span><b>${(cumAmt / 1e6).toFixed(2)}亿</b>`;
+      `<span>价</span><b class="${cls}">${_fmt(p)}</b>` +
+      `<span>均</span><b>${_fmt(vw)}</b>` +
+      `<span>涨</span><b class="${cls}">${chg>=0?'+':''}${_fmt(chg)}</b>` +
+      `<b class="${cls}">${pct>=0?'+':''}${_fmt(pct)}%</b>` +
+      `<span>量</span><b>${(cumVol/100).toFixed(2)}万手</b>` +
+      `<span>额</span><b>${(cumAmt/1e6).toFixed(2)}亿</b>`;
   }
-
   _renderBar();
 
-  // 竖线：吸附数据点 X（plotly_hover 提供）
-  divEl.on('plotly_hover', ev => {
-    const pt = (ev.points || []).find(p => p.pointIndex !== undefined);
-    if (!pt) return;
-    _renderBar(pt.pointIndex);
-    try {
-      const xa = divEl._fullLayout.xaxis;
-      const x_px = xa.l2p(xa.d2l(pt.x)) + xa._offset;
-      const H = divEl.getBoundingClientRect().height;
-      lineV.setAttribute('x1', x_px); lineV.setAttribute('x2', x_px);
-      lineV.setAttribute('y1', 0);    lineV.setAttribute('y2', H);
-      lineV.style.display = '';
-    } catch(e) {}
-  });
-
-  // 横线：跟鼠标实际 Y 坐标（mousemove 提供，不吸附数据点）
-  divEl.addEventListener('mousemove', e => {
-    const rect = divEl.getBoundingClientRect();
-    const y = e.clientY - rect.top;
-    lineH.setAttribute('x1', 0);          lineH.setAttribute('x2', rect.width);
-    lineH.setAttribute('y1', y);          lineH.setAttribute('y2', y);
-    lineH.style.display = '';
-  });
-
-  divEl.addEventListener('mouseleave', () => {
-    lineV.style.display = 'none';
-    lineH.style.display = 'none';
-    _renderBar();
+  chart.subscribeCrosshairMove(param => {
+    if (!param.time) { _renderBar(); return; }
+    const sec = param.time;
+    const idx = times.findIndex((t, i) => toSec(t) === sec);
+    _renderBar(idx >= 0 ? idx : undefined);
   });
 }
 
@@ -1352,7 +1303,9 @@ function closeModal(ev) {
     document.getElementById('modalOverlay').classList.remove('open');
     Plotly.purge('chartDiv');
     ['stIntradayDiv','stDailyDiv','stWeeklyDiv'].forEach(id => {
-      try { Plotly.purge(id); } catch(_) {}
+      const st = _lwcState.get(id);
+      if (st?.chart) try { st.chart.remove(); } catch(_) {}
+      _lwcState.delete(id);
     });
   }
 }
