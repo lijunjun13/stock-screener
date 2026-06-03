@@ -1849,6 +1849,10 @@ def get_stock_data(code: str):
 
 
 def _resolve_tc(code: str) -> str:
+    if code.startswith(("sz", "sh", "hk")):
+        return code
+    if len(code) <= 5 and code.isdigit():
+        return "hk" + code.zfill(5)
     tc = ("sh" if code.startswith("6") else "sz") + code
     cl = _get("stock_list", ttl=86400)
     if cl:
@@ -1856,6 +1860,130 @@ def _resolve_tc(code: str) -> str:
             if s["代码"] == code:
                 return s["_tc"]
     return tc
+
+
+# ── Watchlist ─────────────────────────────────────────────────────────────────
+_WATCHLIST_KEY = "watchlist_v1"
+_WATCHLIST_MAX = 20
+_wl_mem: list[dict] = []
+_wl_lock = threading.Lock()
+
+
+def _wl_load() -> list[dict]:
+    if _redis:
+        try:
+            raw = _redis.get(_WATCHLIST_KEY)
+            if raw:
+                return json.loads(raw)
+        except Exception:
+            pass
+    with _wl_lock:
+        return list(_wl_mem)
+
+
+def _wl_save(items: list[dict]):
+    global _wl_mem
+    with _wl_lock:
+        _wl_mem = list(items)
+    if _redis:
+        try:
+            _redis.setex(_WATCHLIST_KEY, 86400 * 365, json.dumps(items))
+        except Exception:
+            pass
+
+
+def _wl_resolve(raw: str) -> dict | None:
+    """Resolve raw user input to {code, tc_code, name}. Supports A股/港股."""
+    s = raw.strip()
+    if not s:
+        return None
+    if s.lower().startswith(("sz", "sh", "hk")):
+        tc = s.lower()
+        pure = tc[2:]
+    elif len(s) == 6 and s.isdigit():
+        tc = ("sh" if s.startswith("6") else "sz") + s
+        pure = s
+    elif s.isdigit():
+        pure = s.zfill(5)
+        tc = "hk" + pure
+    else:
+        return None
+    try:
+        r = _sess.get(f"https://qt.gtimg.cn/q={tc}", timeout=6)
+        r.raise_for_status()
+        for line in r.text.strip().split(";\n"):
+            if '="' not in line:
+                continue
+            inner = line.split('="', 1)[1].rstrip('";')
+            fields = inner.split("~")
+            if len(fields) >= 4:
+                name  = fields[1].strip()
+                code  = fields[2].strip() or pure
+                price = float(fields[3] or 0)
+                if name and price > 0:
+                    return {"code": code, "tc_code": tc, "name": name}
+    except Exception:
+        pass
+    return None
+
+
+@app.route("/api/watchlist")
+def watchlist_get():
+    items = _wl_load()
+    if not items:
+        return jsonify({"success": True, "stocks": []})
+    tc_list = [it["tc_code"] for it in items]
+    quotes: dict[str, dict] = {}
+    try:
+        r = _sess.get(f"https://qt.gtimg.cn/q={','.join(tc_list)}", timeout=6)
+        r.raise_for_status()
+        for line in r.text.strip().split(";\n"):
+            if '="' not in line:
+                continue
+            var = line.split("=")[0].strip()      # "v_sz000001"
+            tc  = var[2:] if var.startswith("v_") else var
+            inner = line.split('="', 1)[1].rstrip('";')
+            fields = inner.split("~")
+            if len(fields) >= 5:
+                price = float(fields[3] or 0)
+                prev  = float(fields[4] or 0)
+                if price > 0 and prev > 0:
+                    chg_pct = round((price - prev) / prev * 100, 2)
+                    chg_amt = round(price - prev, 3)
+                    quotes[tc] = {"price": price, "chg_pct": chg_pct, "chg_amt": chg_amt}
+    except Exception:
+        pass
+    result = [{**it, **quotes.get(it["tc_code"], {})} for it in items]
+    return jsonify({"success": True, "stocks": result})
+
+
+@app.route("/api/watchlist/add", methods=["POST"])
+def watchlist_add():
+    body = request.get_json(silent=True) or {}
+    raw  = str(body.get("code", "")).strip()
+    if not raw:
+        return jsonify({"error": "请输入代码"}), 400
+    resolved = _wl_resolve(raw)
+    if not resolved:
+        return jsonify({"error": f"未找到股票：{raw}"}), 404
+    items = _wl_load()
+    if any(it["tc_code"] == resolved["tc_code"] for it in items):
+        return jsonify({"error": "已在自选股中"}), 409
+    if len(items) >= _WATCHLIST_MAX:
+        return jsonify({"error": f"自选股最多 {_WATCHLIST_MAX} 只"}), 400
+    items.append(resolved)
+    _wl_save(items)
+    return jsonify({"success": True, "stock": resolved})
+
+
+@app.route("/api/watchlist/remove/<tc_code>", methods=["DELETE"])
+def watchlist_remove(tc_code: str):
+    items = _wl_load()
+    new = [it for it in items if it["tc_code"] != tc_code]
+    if len(new) == len(items):
+        return jsonify({"error": "未找到"}), 404
+    _wl_save(new)
+    return jsonify({"success": True})
 
 
 @app.route("/api/stock/kline/<code>")

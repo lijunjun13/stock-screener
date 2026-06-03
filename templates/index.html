@@ -72,6 +72,47 @@
   .btn-refresh:hover { background: rgba(88,166,255,.12); }
   .count-badge { color: var(--muted); font-size: .82rem; white-space: nowrap; }
 
+  /* ── watchlist ─────────────────────────────────────────────────────────── */
+  .wl-wrap { padding: 0 12px 2px; }
+  .wl-header { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+  .wl-title { color: #8b949e; font-size: .75rem; font-weight: 600; letter-spacing: .05em; }
+  .wl-count { color: #8b949e; font-size: .7rem; }
+  .wl-scroll { display: flex; align-items: stretch; gap: 8px; overflow-x: auto;
+               padding: 2px 0 6px; scrollbar-width: thin; scrollbar-color: #30363d transparent; }
+  .wl-scroll::-webkit-scrollbar { height: 4px; }
+  .wl-scroll::-webkit-scrollbar-thumb { background: #30363d; border-radius: 2px; }
+  .wl-card { position: relative; flex: 0 0 auto; width: 118px;
+             background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+             padding: 8px 10px 8px; cursor: pointer; transition: border-color .15s; }
+  .wl-card:hover { border-color: #58a6ff; }
+  .wl-card-name { font-size: .8rem; color: #e6edf3; white-space: nowrap;
+                  overflow: hidden; text-overflow: ellipsis; padding-right: 14px; }
+  .wl-card-code { font-size: .68rem; color: #8b949e; margin: 2px 0 5px; }
+  .wl-card-price { font-size: .92rem; font-weight: 700; }
+  .wl-card-chg { font-size: .74rem; margin-top: 2px; }
+  .wl-del { position: absolute; top: 4px; right: 5px; background: none; border: none;
+            color: #8b949e; cursor: pointer; font-size: .78rem; line-height: 1;
+            padding: 1px 3px; border-radius: 3px; transition: color .12s; }
+  .wl-del:hover { color: #f85149; }
+  .wl-add-btn { flex: 0 0 auto; width: 44px; min-height: 74px;
+                background: #161b22; border: 1px dashed #30363d; border-radius: 8px;
+                color: #58a6ff; font-size: 1.4rem; cursor: pointer;
+                display: flex; align-items: center; justify-content: center;
+                transition: border-color .15s, background .15s; }
+  .wl-add-btn:hover { border-color: #58a6ff; background: #1c2733; }
+  /* add-input inline */
+  .wl-add-row { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
+  .wl-add-input { background: #161b22; border: 1px solid #30363d; border-radius: 6px;
+                  color: #e6edf3; font-size: .82rem; padding: 4px 8px; width: 180px;
+                  outline: none; }
+  .wl-add-input:focus { border-color: #58a6ff; }
+  .wl-add-confirm { background: #238636; border: none; border-radius: 6px;
+                    color: #fff; font-size: .8rem; padding: 4px 10px; cursor: pointer; }
+  .wl-add-confirm:hover { opacity: .85; }
+  .wl-add-cancel { background: none; border: 1px solid #30363d; border-radius: 6px;
+                   color: #8b949e; font-size: .8rem; padding: 4px 8px; cursor: pointer; }
+  .wl-add-cancel:hover { border-color: #8b949e; }
+
   /* table */
   .tbl-wrap { overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; }
@@ -410,6 +451,21 @@
   <button class="btn-screen" onclick="openScreener()">⚡ 选股分析</button>
   <button class="btn-screen" style="background:linear-gradient(135deg,#1a4f7f,#2b6cb0)" onclick="openTrend()">📈 趋势交易</button>
   <span class="count-badge" id="countBadge"></span>
+</div>
+
+<!-- ── WATCHLIST ─────────────────────────────────────────────────────────── -->
+<div class="wl-wrap" id="wlWrap">
+  <div class="wl-header">
+    <span class="wl-title">⭐ 自选股</span>
+    <span class="wl-count" id="wlCount"></span>
+  </div>
+  <div class="wl-scroll" id="wlScroll"></div>
+  <div class="wl-add-row" id="wlAddRow" style="display:none">
+    <input class="wl-add-input" id="wlInput" placeholder="代码（如 000001、00700）"
+           onkeydown="if(event.key==='Enter')wlConfirmAdd()" />
+    <button class="wl-add-confirm" onclick="wlConfirmAdd()">确认</button>
+    <button class="wl-add-cancel" onclick="wlCloseAdd()">取消</button>
+  </div>
 </div>
 
 <div class="tbl-wrap">
@@ -3365,6 +3421,77 @@ document.addEventListener('keydown', e => {
 
 // ── init ─────────────────────────────────────────────────────────────────────
 loadList();
+
+// ── watchlist ─────────────────────────────────────────────────────────────────
+let _wlStocks = [];
+let _wlRefreshTimer = null;
+
+async function wlLoad() {
+  try {
+    const r = await fetch('/api/watchlist');
+    const d = await r.json();
+    if (d.success) { _wlStocks = d.stocks; wlRender(); }
+  } catch (e) {}
+}
+
+function wlRender() {
+  const scroll = document.getElementById('wlScroll');
+  const countEl = document.getElementById('wlCount');
+  countEl.textContent = _wlStocks.length ? `${_wlStocks.length} / 20` : '';
+
+  let html = '';
+  for (const s of _wlStocks) {
+    const price   = s.price   != null ? s.price.toFixed(2) : '—';
+    const pct     = s.chg_pct != null ? s.chg_pct : null;
+    const color   = pct == null ? '#8b949e' : pct >= 0 ? '#f85149' : '#3fb950';
+    const pctStr  = pct == null ? '' : (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%';
+    const tc_esc  = s.tc_code.replace(/'/g, "\\'");
+    const nm_esc  = s.name.replace(/'/g, "\\'");
+    html += `<div class="wl-card" onclick="openModal('${s.code}','${nm_esc}')">
+      <button class="wl-del" onclick="event.stopPropagation();wlRemove('${tc_esc}')" title="删除">×</button>
+      <div class="wl-card-name" title="${s.name}">${s.name}</div>
+      <div class="wl-card-code">${s.code}</div>
+      <div class="wl-card-price" style="color:${color}">${price}</div>
+      <div class="wl-card-chg" style="color:${color}">${pctStr}</div>
+    </div>`;
+  }
+  html += `<button class="wl-add-btn" onclick="wlOpenAdd()" title="添加自选股">＋</button>`;
+  scroll.innerHTML = html;
+}
+
+function wlOpenAdd() {
+  document.getElementById('wlAddRow').style.display = 'flex';
+  document.getElementById('wlInput').focus();
+}
+function wlCloseAdd() {
+  document.getElementById('wlAddRow').style.display = 'none';
+  document.getElementById('wlInput').value = '';
+}
+async function wlConfirmAdd() {
+  const raw = document.getElementById('wlInput').value.trim();
+  if (!raw) return;
+  document.getElementById('wlInput').disabled = true;
+  try {
+    const r = await fetch('/api/watchlist/add', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({code: raw}),
+    });
+    const d = await r.json();
+    if (!d.success) { alert(d.error || '添加失败'); return; }
+    wlCloseAdd();
+    await wlLoad();
+  } catch (e) { alert('请求失败：' + e); }
+  finally { document.getElementById('wlInput').disabled = false; }
+}
+async function wlRemove(tcCode) {
+  const r = await fetch(`/api/watchlist/remove/${encodeURIComponent(tcCode)}`, {method: 'DELETE'});
+  const d = await r.json();
+  if (d.success) { _wlStocks = _wlStocks.filter(s => s.tc_code !== tcCode); wlRender(); }
+}
+
+wlLoad();
+_wlRefreshTimer = setInterval(wlLoad, 30000);
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TREND TRADING SCREENER
