@@ -712,6 +712,11 @@ def _fetch_kline_hfq(tc_code: str, years: int = 10) -> tuple[list[str], list[flo
 
     # ── 历史段（10年 → cutoff），TTL 50天 ────────────────────────────────────
     hist = _get(f"kline_hist_{tc_code}", ttl=86400 * 50)
+    # 若缓存起始日期比预期早不到 (years-1) 年，说明是旧的短周期缓存，强制重取
+    if hist and hist.get("dates"):
+        min_ok_start = (today - timedelta(days=(years - 1) * 365)).strftime("%Y-%m-%d")
+        if hist["dates"][0] > min_ok_start:
+            hist = None
     if not hist:
         cutoff = (today - timedelta(days=50)).strftime("%Y-%m-%d")
         h_dates, h_closes = _fetch_kline_range(tc_code, hist_start, cutoff)
