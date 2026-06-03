@@ -1122,6 +1122,38 @@ function _drawKline(divId, rows, maWindows) {
     lineH.style.display = 'none';
     _renderKBar();
   });
+
+  // ── 触控板缩放 / 平移 ────────────────────────────────────────────────────
+  let _klineRaf = null;
+  divEl.addEventListener('wheel', e => {
+    e.preventDefault();
+    if (_klineRaf) cancelAnimationFrame(_klineRaf);
+    _klineRaf = requestAnimationFrame(() => {
+      try {
+        const xa = divEl._fullLayout.xaxis;
+        let [r0, r1] = xa.range.map(Number);
+        const span = r1 - r0;
+        if (e.ctrlKey) {
+          // 双指捏合 → 缩放（以视图中心为基准）
+          const factor = e.deltaY > 0 ? 1.12 : (1 / 1.12);
+          const mid = (r0 + r1) / 2;
+          const ns  = Math.max(5, Math.min(n - 1, span * factor));
+          r0 = mid - ns / 2;
+          r1 = mid + ns / 2;
+        } else if (Math.abs(e.deltaX) >= Math.abs(e.deltaY)) {
+          // 双指左右滑 → 平移
+          const shift = span * e.deltaX * 0.004;
+          r0 += shift; r1 += shift;
+        } else {
+          return;
+        }
+        // 限制在数据范围内
+        if (r0 < -0.5) { r1 -= r0 + 0.5; r0 = -0.5; }
+        if (r1 > n - 0.5) { r0 -= r1 - (n - 0.5); r1 = n - 0.5; }
+        Plotly.relayout(divEl, { 'xaxis.range': [r0, r1] });
+      } catch (_) {}
+    });
+  }, { passive: false });
 }
 
 function _drawIntraday(divId, data) {
