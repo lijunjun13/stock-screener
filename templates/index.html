@@ -1426,7 +1426,7 @@ function drawChart(d, name, code) {
     const peChart = LightweightCharts.createChart(peDivEl, {
       ...commonOpts,
       width: totalW, height: peH,
-      rightPriceScale: { borderColor: '#30363d' },
+      rightPriceScale: { borderColor: '#30363d', mode: LightweightCharts.PriceScaleMode.Logarithmic },
     });
     _lwcLTPEChart = peChart;
 
