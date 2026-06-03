@@ -32,12 +32,40 @@ _sess.headers.update(
     }
 )
 
-# ── TTL cache ─────────────────────────────────────────────────────────────────
+# ── TTL cache（优先 Redis，降级内存）────────────────────────────────────────────
 _cache: dict = {}
 _cache_lock = threading.Lock()
+_redis = None
+
+def _init_redis():
+    global _redis
+    url = os.environ.get("REDIS_URL")
+    if not url:
+        return
+    try:
+        import redis as redis_lib
+        client = redis_lib.from_url(url, decode_responses=True, socket_connect_timeout=3)
+        client.ping()
+        _redis = client
+        print(f"[cache] Redis connected: {url[:30]}...")
+    except Exception as e:
+        print(f"[cache] Redis unavailable, using memory: {e}")
+
+_init_redis()
 
 
 def _get(key: str, ttl: int):
+    if _redis:
+        try:
+            raw = _redis.get(key)
+            if raw is not None:
+                entry = json.loads(raw)
+                if (time.time() - entry["ts"]) < ttl:
+                    return entry["data"]
+                _redis.delete(key)
+                return None
+        except Exception:
+            pass
     with _cache_lock:
         entry = _cache.get(key)
     if entry and (time.time() - entry["ts"]) < ttl:
@@ -46,6 +74,13 @@ def _get(key: str, ttl: int):
 
 
 def _set(key: str, data):
+    if _redis:
+        try:
+            payload = json.dumps({"data": data, "ts": time.time()})
+            _redis.setex(key, 86400 * 7, payload)  # 7天后 Redis 自动清理
+            return
+        except Exception:
+            pass
     with _cache_lock:
         _cache[key] = {"data": data, "ts": time.time()}
 
