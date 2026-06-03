@@ -1112,10 +1112,14 @@ function _drawKline(divId, rows, maWindows, initRange) {
   }
   _renderKBar();
 
+  // 记录当前悬浮的 K 线索引（用于以十字线为中心缩放）
+  let _hoverIdx = null;
+
   // 竖线吸附数据 X
   divEl.on('plotly_hover', ev => {
     const pt = (ev.points || []).find(p => p.pointIndex !== undefined);
     if (!pt) return;
+    _hoverIdx = pt.pointIndex;
     _renderKBar(pt.pointIndex);
     try {
       const xa = divEl._fullLayout.xaxis;
@@ -1140,6 +1144,7 @@ function _drawKline(divId, rows, maWindows, initRange) {
   divEl.addEventListener('mouseleave', () => {
     lineV.style.display = 'none';
     lineH.style.display = 'none';
+    _hoverIdx = null;
     _renderKBar();
   });
 
@@ -1180,9 +1185,13 @@ function _drawKline(divId, rows, maWindows, initRange) {
       [_r0, _r1] = _clamp(_r0 + shift, _r1 + shift);
     } else {
       const factor = e.deltaY > 0 ? 1.12 : (1 / 1.12);
-      const mid = (_r0 + _r1) / 2;
-      const ns  = Math.max(5, Math.min(MAX_BARS, span * factor));
-      [_r0, _r1] = _clamp(mid - ns/2, mid + ns/2);
+      const ns     = Math.max(5, Math.min(MAX_BARS, span * factor));
+      // 以十字线所在 K 线为中心；无悬浮时用视图中心
+      const anchor = (_hoverIdx !== null) ? _hoverIdx : (_r0 + _r1) / 2;
+      const ratio  = (anchor - _r0) / span;   // anchor 在当前视图的比例位置
+      _r0 = anchor - ratio * ns;
+      _r1 = _r0 + ns;
+      [_r0, _r1] = _clamp(_r0, _r1);
     }
 
     if (!_pending) {
