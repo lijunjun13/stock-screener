@@ -10,6 +10,7 @@
 <title>趋势选股</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
 <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+<script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
 <style>
   :root {
     --bg:       #0d1117;
@@ -1000,237 +1001,123 @@ function _computeMA(closes, n) {
   );
 }
 
-const _klineState = new Map(); // divId → {allRows, winStart, loading, maWindows, _r0, _r1}
-const _KLINE_RENDER = 500; // Plotly 最多渲染这么多根
+// ── lightweight-charts K线图 ──────────────────────────────────────────────────
+const _lwcState = new Map(); // divId → {chart, candleSeries, maSeries[], maData[][], rows, loading, maWindows}
 
-function _drawKline(divId, rows, maWindows, initRange) {
+function _d2lwc(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return { year: y, month: m, day: d };
+}
+
+function _drawKline(divId, rows, maWindows, _ignored) {
   if (!rows || !rows.length) { _stError(divId, '暂无K线数据'); return; }
-  // 初次渲染时建立 state；load-more 时 allRows/winStart 由 _loadMoreKline 管理
-  const prev = _klineState.get(divId);
-  _klineState.set(divId, {
-    allRows:   prev?.allRows  || rows,   // master 数据
-    winStart:  prev?.winStart || 0,      // 当前渲染窗口在 allRows 中的起始索引
-    loading:   false,
-    maWindows: maWindows || [5, 10, 20],
-    _r0: null, _r1: null,               // 由 wheel handler 持续更新
-  });
 
-  // 清除旧内容
   const divEl = document.getElementById(divId);
   divEl.innerHTML = '';
 
-  const dates  = rows.map(r => r.date);
-  const opens  = rows.map(r => r.open);
-  const highs  = rows.map(r => r.high);
-  const lows   = rows.map(r => r.low);
-  const closes = rows.map(r => r.close);
-  const wins   = maWindows || [5, 10, 20];
+  // 销毁旧 chart
+  const prev = _lwcState.get(divId);
+  if (prev?.chart) try { prev.chart.remove(); } catch(_) {}
+
+  const wins     = maWindows || [5, 10, 20];
   const maColors = ['#e3b341', '#58a6ff', '#bc8cff'];
-  const maData   = wins.map(n => _computeMA(closes, n));
+  const closes   = rows.map(r => r.close);
+  const maData   = wins.map(w => _computeMA(closes, w));
+  const n        = rows.length;
 
-  const traces = [{
-    type: 'candlestick',
-    x: dates, open: opens, high: highs, low: lows, close: closes,
-    increasing: { line: { color: '#f85149', width: 1 }, fillcolor: '#f85149' },
-    decreasing: { line: { color: '#3fb950', width: 1 }, fillcolor: '#3fb950' },
-    name: 'K线', showlegend: false, hoverinfo: 'none',
-  }];
-  wins.forEach((n, i) => {
-    traces.push({
-      type: 'scatter', mode: 'lines', x: dates, y: maData[i],
-      name: `MA${n}`, line: { color: maColors[i], width: 1.2 },
-      connectgaps: false, hoverinfo: 'none',
-    });
-  });
-
-  // 初始可见范围（末尾 150 根，或由 load-more 传入）
-  const _nTotal = dates.length;
-  const _initR0 = initRange ? initRange[0] : Math.max(-0.5, _nTotal - 150);
-  const _initR1 = initRange ? initRange[1] : _nTotal - 0.5;
-
-  // 初始 Y 轴范围（根据可见数据计算）
-  const _ii0 = Math.max(0, Math.floor(_initR0));
-  const _ii1 = Math.min(_nTotal - 1, Math.ceil(_initR1));
-  const _vl  = lows.slice(_ii0, _ii1 + 1).filter(v => v > 0);
-  const _vh  = highs.slice(_ii0, _ii1 + 1).filter(v => v > 0);
-  let _initY = undefined;
-  if (_vl.length) {
-    const yMin = Math.min(..._vl), yMax = Math.max(..._vh);
-    const pad  = (yMax - yMin) * 0.06 || yMin * 0.01;
-    _initY = [yMin - pad, yMax + pad];
-  }
-
-  const layout = {
-    paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
-    margin: { l: 42, r: 8, t: 4, b: 36 },
-    hovermode: 'x', hoverdistance: 30,
-    xaxis: {
-      type: 'category', color: '#8b949e', gridcolor: 'rgba(255,255,255,.06)',
-      tickfont: { size: 10 }, rangeslider: { visible: false },
-      tickangle: -30, nticks: 8, range: [_initR0, _initR1],
+  // ── 创建 chart ──────────────────────────────────────────────────────────
+  const chart = LightweightCharts.createChart(divEl, {
+    width:  divEl.clientWidth  || 400,
+    height: divEl.clientHeight || 300,
+    layout: { background: { color: 'transparent' }, textColor: '#8b949e' },
+    grid: {
+      vertLines: { color: 'rgba(255,255,255,.06)' },
+      horzLines: { color: 'rgba(255,255,255,.06)' },
     },
-    yaxis: { color: '#8b949e', gridcolor: 'rgba(255,255,255,.06)', tickfont: { size: 10 }, range: _initY },
-    legend: { font: { size: 10, color: '#8b949e' }, orientation: 'h', y: 1.04, x: 0 },
-    font: { family: 'inherit' },
-  };
-  Plotly.newPlot(divId, traces, layout, { responsive: true, displayModeBar: false });
-
-  // ── SVG 十字线 ──────────────────────────────────────────────────────────
-  const svgNS = 'http://www.w3.org/2000/svg';
-  const crossSvg = document.createElementNS(svgNS, 'svg');
-  crossSvg.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible;';
-  const lineV = document.createElementNS(svgNS, 'line');
-  const lineH = document.createElementNS(svgNS, 'line');
-  [lineV, lineH].forEach(l => {
-    l.setAttribute('stroke', 'rgba(160,160,160,0.55)');
-    l.setAttribute('stroke-width', '1.5');
-    l.setAttribute('stroke-dasharray', '4,3');
-    l.style.display = 'none';
-    crossSvg.appendChild(l);
+    crosshair: {
+      vertLine: { color: 'rgba(160,160,160,.55)', style: 3, width: 1.5, labelBackgroundColor: '#21262d' },
+      horzLine: { color: 'rgba(160,160,160,.55)', style: 3, width: 1.5, labelBackgroundColor: '#21262d' },
+    },
+    rightPriceScale: { borderColor: 'rgba(255,255,255,.1)' },
+    timeScale:       { borderColor: 'rgba(255,255,255,.1)', fixLeftEdge: false, fixRightEdge: false },
+    handleScroll:    true,
+    handleScale:     true,
   });
-  divEl.style.position = 'relative';
-  divEl.appendChild(crossSvg);
+
+  // ── 蜡烛图 ───────────────────────────────────────────────────────────────
+  const candleSeries = chart.addCandlestickSeries({
+    upColor: '#f85149', downColor: '#3fb950',
+    borderUpColor: '#f85149', borderDownColor: '#3fb950',
+    wickUpColor: '#f85149', wickDownColor: '#3fb950',
+  });
+  candleSeries.setData(rows.map(r => ({ time: _d2lwc(r.date), open: r.open, high: r.high, low: r.low, close: r.close })));
+
+  // ── MA 线 ────────────────────────────────────────────────────────────────
+  const maSeries = wins.map((w, i) => {
+    const s = chart.addLineSeries({ color: maColors[i], lineWidth: 1,
+      priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
+    s.setData(maData[i].map((v, idx) => v !== null ? { time: _d2lwc(rows[idx].date), value: v } : null).filter(Boolean));
+    return s;
+  });
+
+  // 初始显示末尾 150 根
+  chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, n - 150), to: n - 1 });
+
+  // 存 state
+  _lwcState.set(divId, { chart, candleSeries, maSeries, maData, rows: rows.slice(), loading: false, maWindows: wins });
+
+  // 响应容器尺寸变化
+  const ro = new ResizeObserver(() => chart.applyOptions({ width: divEl.clientWidth, height: divEl.clientHeight }));
+  ro.observe(divEl);
 
   // ── info bar ─────────────────────────────────────────────────────────────
   const barId = divId.replace('Div', 'Bar');
   const barEl = document.getElementById(barId);
-  const n = dates.length;
-
-  function _fmt(v, d=2) { return (v != null && Number.isFinite(v)) ? v.toFixed(d) : '--'; }
+  function _fmt(v, d=2) { return (v != null && isFinite(v)) ? (+v).toFixed(d) : '--'; }
 
   function _renderKBar(idx) {
     if (!barEl) return;
-    const i = (idx !== undefined && idx >= 0 && idx < n) ? idx : n - 1;
-    const o = opens[i], h = highs[i], l = lows[i], c = closes[i];
-    const prev = i > 0 ? closes[i - 1] : opens[i];
-    const chg  = prev > 0 ? c - prev : 0;
+    const st  = _lwcState.get(divId);
+    const arr = st?.rows || rows;
+    const len = arr.length;
+    const i   = (idx != null && idx >= 0 && idx < len) ? idx : len - 1;
+    const r   = arr[i];
+    const md  = st?.maData || maData;
+    const prev = i > 0 ? arr[i-1].close : r.open;
+    const chg  = prev > 0 ? r.close - prev : 0;
     const pct  = prev > 0 ? chg / prev * 100 : 0;
     const cls  = chg >= 0 ? 'up' : 'dn';
-    const maStr = wins.map((w, wi) => {
-      const v = maData[wi][i];
-      return `<span>MA${w}</span><b>${_fmt(v)}</b>`;
-    }).join('');
+    const maStr = wins.map((w, wi) => `<span>MA${w}</span><b>${_fmt(md[wi]?.[i])}</b>`).join('');
     barEl.innerHTML =
-      `<span>${dates[i]}</span>` +
-      `<span>开</span><b>${_fmt(o)}</b>` +
-      `<span>高</span><b>${_fmt(h)}</b>` +
-      `<span>低</span><b>${_fmt(l)}</b>` +
-      `<span>收</span><b class="${cls}">${_fmt(c)}</b>` +
-      `<b class="${cls}">${chg >= 0 ? '+' : ''}${_fmt(chg)} (${pct >= 0 ? '+' : ''}${_fmt(pct)}%)</b>` +
+      `<span>${r.date}</span>` +
+      `<span>开</span><b>${_fmt(r.open)}</b>` +
+      `<span>高</span><b>${_fmt(r.high)}</b>` +
+      `<span>低</span><b>${_fmt(r.low)}</b>` +
+      `<span>收</span><b class="${cls}">${_fmt(r.close)}</b>` +
+      `<b class="${cls}">${chg>=0?'+':''}${_fmt(chg)} (${pct>=0?'+':''}${_fmt(pct)}%)</b>` +
       maStr;
   }
   _renderKBar();
 
-  // 记录鼠标在图表区域的相对 X（用于以鼠标位置为中心缩放）
-  let _mouseRelX = null;
-
-  // 竖线吸附数据 X
-  divEl.on('plotly_hover', ev => {
-    const pt = (ev.points || []).find(p => p.pointIndex !== undefined);
-    if (!pt) return;
-    _renderKBar(pt.pointIndex);
-    try {
-      const xa = divEl._fullLayout.xaxis;
-      // category 轴：l2p 接受数值 index
-      const x_px = xa.l2p(pt.pointIndex) + xa._offset;
-      const H = divEl.getBoundingClientRect().height;
-      lineV.setAttribute('x1', x_px); lineV.setAttribute('x2', x_px);
-      lineV.setAttribute('y1', 0);    lineV.setAttribute('y2', H);
-      lineV.style.display = '';
-    } catch(e) {}
+  // crosshair 移动 → info bar
+  chart.subscribeCrosshairMove(param => {
+    if (param.logical == null) { _renderKBar(); return; }
+    _renderKBar(Math.round(param.logical));
   });
 
-  // 横线跟鼠标 Y，同时记录鼠标 X 供缩放使用
-  divEl.addEventListener('mousemove', e => {
-    const rect = divEl.getBoundingClientRect();
-    _mouseRelX = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    lineH.setAttribute('x1', 0);          lineH.setAttribute('x2', rect.width);
-    lineH.setAttribute('y1', y);          lineH.setAttribute('y2', y);
-    lineH.style.display = '';
+  // 左侧触边 → 加载更多
+  chart.timeScale().subscribeVisibleLogicalRangeChange(range => {
+    if (range && range.from < 10) _loadMoreKline(divId);
   });
 
-  divEl.addEventListener('mouseleave', () => {
-    lineV.style.display = 'none';
-    lineH.style.display = 'none';
-    _mouseRelX = null;
-    _renderKBar();
-  });
-
-  // ── Y 轴按可见 K 线自动适配（用循环避免大数组 spread 开销）───────────────
-  function _fitYAxis(r0, r1) {
-    const i0 = Math.max(0, Math.floor(r0));
-    const i1 = Math.min(n - 1, Math.ceil(r1));
-    let yMin = Infinity, yMax = -Infinity;
-    for (let i = i0; i <= i1; i++) {
-      if (lows[i]  > 0 && lows[i]  < yMin) yMin = lows[i];
-      if (highs[i] > yMax) yMax = highs[i];
-    }
-    if (!isFinite(yMin)) return {};
-    const pad = (yMax - yMin) * 0.06 || yMin * 0.01;
-    return { 'yaxis.range': [yMin - pad, yMax + pad] };
-  }
-
-  // ── 触控板缩放 / 平移 ────────────────────────────────────────────────────
-  const MAX_BARS = 500;
-  // 自维护状态，不从 Plotly 回读（回读中间态会导致抖动）
-  let _r0 = _initR0, _r1 = _initR1;
-  let _pending = false;
-
-  function _clamp(r0, r1) {
-    if (r1 - r0 > MAX_BARS) { const m = (r0+r1)/2; r0 = m-MAX_BARS/2; r1 = m+MAX_BARS/2; }
-    if (r0 < -0.5)    { r1 -= r0 + 0.5; r0 = -0.5; }
-    if (r1 > n - 0.5) { r0 -= r1 - (n - 0.5); r1 = n - 0.5; }
-    return [r0, r1];
-  }
-
-  divEl.addEventListener('wheel', e => {
-    e.preventDefault();
-    const span = _r1 - _r0;
-    const isPan = Math.abs(e.deltaX) >= Math.abs(e.deltaY);
-
-    if (isPan) {
-      const shift = span * e.deltaX * 0.004;
-      [_r0, _r1] = _clamp(_r0 + shift, _r1 + shift);
-    } else {
-      const factor = e.deltaY > 0 ? 1.12 : (1 / 1.12);
-      const ns = Math.max(5, Math.min(MAX_BARS, span * factor));
-      // 用鼠标像素位置实时换算 anchor（不依赖 plotly_hover 事件，避免滞后）
-      let anchor = (_r0 + _r1) / 2;
-      if (_mouseRelX !== null) {
-        const rect   = divEl.getBoundingClientRect();
-        const plotW  = rect.width - 42 - 8; // margin l=42 r=8
-        const frac   = Math.max(0, Math.min(1, (_mouseRelX - 42) / plotW));
-        anchor = _r0 + frac * span;
-      }
-      const ratio = (anchor - _r0) / span;
-      _r0 = anchor - ratio * ns;
-      _r1 = _r0 + ns;
-      [_r0, _r1] = _clamp(_r0, _r1);
-    }
-
-    if (!_pending) {
-      _pending = true;
-      requestAnimationFrame(() => {
-        _pending = false;
-        try {
-          Plotly.relayout(divEl, { 'xaxis.range': [_r0, _r1], ..._fitYAxis(_r0, _r1) });
-          // 同步最新坐标到 state 供 _loadMoreKline 读取
-          const st = _klineState.get(divId);
-          if (st) { st._r0 = _r0; st._r1 = _r1; }
-          if (_r0 < 10) _loadMoreKline(divId);
-        } catch (_) {}
-      });
-    }
-  }, { passive: false });
 }
 
 async function _loadMoreKline(divId) {
-  const st = _klineState.get(divId);
+  const st = _lwcState.get(divId);
   if (!st || st.loading || !_currentCode) return;
   st.loading = true;
 
-  const firstDate = st.allRows[0].date;
+  const firstDate = st.rows[0].date;
   try {
     const resp = await fetch(`/api/stock/kline/${_currentCode}?before=${firstDate}`);
     const d = await resp.json();
@@ -1239,32 +1126,24 @@ async function _loadMoreKline(divId) {
     const newRows = d.daily.filter(r => r.date < firstDate);
     if (!newRows.length) { st.loading = false; return; }
 
-    const added   = newRows.length;
-    const newAll  = [...newRows, ...st.allRows];
-    const allLen  = newAll.length;
+    const allRows = [...newRows, ...st.rows];
+    st.rows   = allRows;
+    const closes = allRows.map(r => r.close);
+    st.maData = st.maWindows.map(w => _computeMA(closes, w));
 
-    // 当前视图在新全局坐标中的位置
-    const curR0 = (st._r0 ?? 0) + (st.winStart ?? 0) + added;
-    const curR1 = (st._r1 ?? _KLINE_RENDER) + (st.winStart ?? 0) + added;
-    const center = (curR0 + curR1) / 2;
+    // 更新蜡烛数据
+    st.candleSeries.setData(allRows.map(r => ({
+      time: _d2lwc(r.date), open: r.open, high: r.high, low: r.low, close: r.close,
+    })));
+    // 更新 MA 线
+    st.maSeries.forEach((s, i) => {
+      s.setData(st.maData[i]
+        .map((v, idx) => v !== null ? { time: _d2lwc(allRows[idx].date), value: v } : null)
+        .filter(Boolean));
+    });
+  } catch(_) {}
 
-    // 计算渲染窗口（最多 _KLINE_RENDER 根）
-    let wStart = Math.max(0, Math.round(center - _KLINE_RENDER / 2));
-    let wEnd   = Math.min(allLen, wStart + _KLINE_RENDER);
-    if (wEnd - wStart < _KLINE_RENDER) wStart = Math.max(0, wEnd - _KLINE_RENDER);
-
-    const renderRows = newAll.slice(wStart, wEnd);
-    const localR0 = curR0 - wStart;
-    const localR1 = curR1 - wStart;
-
-    // 更新 master state（_drawKline 会重建 state，之后恢复 allRows/winStart）
-    st.allRows   = newAll;
-    st.winStart  = wStart;
-    _drawKline(divId, renderRows, st.maWindows, [localR0, localR1]);
-
-    // 恢复 master 信息（_drawKline 会用 prev 读取，已在上面更新过 st）
-  } catch (_) {}
-  const s2 = _klineState.get(divId);
+  const s2 = _lwcState.get(divId);
   if (s2) s2.loading = false;
 }
 
