@@ -499,6 +499,7 @@
   <div class="modal-box" onclick="event.stopPropagation()">
     <div class="modal-header">
       <h2 id="modalTitle">股票走势分析</h2>
+      <button id="modalWlBtn" class="btn-wl" style="font-size:1rem;padding:0 8px" onclick="wlToggleModal()">+</button>
       <button class="modal-close" onclick="closeModal()">✕</button>
     </div>
     <div class="modal-body">
@@ -960,9 +961,25 @@ function openModal(code, name) {
   _currentStockName = name;
   _longTermLoaded   = false;
   document.getElementById('modalTitle').textContent = `${name}（${code}）`;
+  _updateModalWlBtn();
   document.getElementById('modalOverlay').classList.add('open');
   switchModalTab('short');
   _loadShortTerm(code);
+}
+
+function _updateModalWlBtn() {
+  const btn = document.getElementById('modalWlBtn');
+  if (!btn) return;
+  const inWl = _wlStocks.some(w => w.code === _currentCode);
+  btn.textContent = inWl ? '−' : '+';
+  btn.className   = inWl ? 'btn-wl in-wl' : 'btn-wl';
+  btn.style.cssText = 'font-size:1rem;padding:0 8px';
+  btn.title = inWl ? '移出自选' : '加入自选';
+}
+
+async function wlToggleModal() {
+  await wlToggle(_currentCode, _currentStockName);
+  _updateModalWlBtn();
 }
 
 // ── short-term charts ─────────────────────────────────────────────────────────
@@ -3445,8 +3462,8 @@ async function wlLoad() {
       _wlStocks = d.stocks;
       wlRender();
       renderTable();
-      // 如果趋势交易结果已渲染，也同步刷新
       if (typeof renderTrendResults === 'function' && trendAllResults.length) renderTrendResults();
+      if (typeof _updateModalWlBtn === 'function') _updateModalWlBtn();
     }
   } catch (e) {}
 }
