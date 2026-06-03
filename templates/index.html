@@ -1349,6 +1349,11 @@ function drawChart(d, name, code) {
   });
   _lwcLTChart = chart;
 
+  // 有 PE 时限制价格面板到上方 65%，留出下方给 PE 子图
+  if (hasPE) {
+    chart.priceScale('right').applyOptions({ scaleMargins: { top: 0.02, bottom: 0.33 } });
+  }
+
   const ro = new ResizeObserver(() => chart.applyOptions({ width: divEl.clientWidth, height: divEl.clientHeight }));
   ro.observe(divEl);
 
@@ -1386,17 +1391,29 @@ function drawChart(d, name, code) {
   if (sel3 && d.lower_band_3y) _setD(p10_3, d.dates, d.lower_band_3y);
   if (sel3 && d.upper_band_3y) _setD(p90_3, d.dates, d.upper_band_3y);
 
-  // ── PE 子面板 ────────────────────────────────────────────────────────────
+  // ── PE 子面板（独立 Y 轴，下方 28%）────────────────────────────────────────
   if (hasPE) {
-    const PE_CLIP = 80;
+    const PE_CLIP = 120;
     const ps = d.pe_stats;
+
+    // 分割线：视觉上区隔两个子图
+    divEl.style.position = 'relative';
+    const sepEl = document.createElement('div');
+    sepEl.style.cssText = 'position:absolute;left:0;right:0;top:67%;height:1px;background:rgba(255,255,255,.12);pointer-events:none;z-index:5';
+    divEl.appendChild(sepEl);
+
+    // PE 标签
+    const peLabelEl = document.createElement('div');
+    peLabelEl.textContent = 'PE';
+    peLabelEl.style.cssText = 'position:absolute;left:8px;top:69%;font-size:.68rem;color:rgba(210,168,255,.6);pointer-events:none;z-index:5';
+    divEl.appendChild(peLabelEl);
 
     const peSeries = chart.addLineSeries({ priceScaleId: 'pe',
       color: 'rgba(210,168,255,.85)', lineWidth: 1.5,
-      priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
+      priceLineVisible: false, lastValueVisible: true, crosshairMarkerVisible: false });
     chart.priceScale('pe').applyOptions({
-      scaleMargins: { top: 0.72, bottom: 0 },
-      mode: LightweightCharts.PriceScaleMode.Logarithmic,
+      scaleMargins: { top: 0.70, bottom: 0.02 },
+      mode: LightweightCharts.PriceScaleMode.Normal,
       borderColor: '#30363d',
     });
     peSeries.setData(d.pe_dates
@@ -1406,7 +1423,7 @@ function drawChart(d, name, code) {
     // PE 中位虚线
     if (ps?.median) {
       peSeries.createPriceLine({ price: ps.median, color: 'rgba(210,168,255,.4)',
-        lineWidth: 1, lineStyle: LS.Dotted, axisLabelVisible: false });
+        lineWidth: 1, lineStyle: LS.Dotted, axisLabelVisible: true });
     }
   }
 
