@@ -1863,10 +1863,11 @@ def _resolve_tc(code: str) -> str:
 
 
 # ── Watchlist ─────────────────────────────────────────────────────────────────
-_WATCHLIST_KEY = "watchlist_v1"
-_WATCHLIST_MAX = 20
+_WATCHLIST_KEY  = "watchlist_v1"
+_WATCHLIST_MAX  = 20
 _wl_mem: list[dict] = []
 _wl_lock = threading.Lock()
+_WATCHLIST_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".watchlist.json")
 
 
 def _wl_load() -> list[dict]:
@@ -1877,6 +1878,12 @@ def _wl_load() -> list[dict]:
                 return json.loads(raw)
         except Exception:
             pass
+    # 本地文件兜底
+    try:
+        with open(_WATCHLIST_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        pass
     with _wl_lock:
         return list(_wl_mem)
 
@@ -1888,8 +1895,15 @@ def _wl_save(items: list[dict]):
     if _redis:
         try:
             _redis.setex(_WATCHLIST_KEY, 86400 * 365, json.dumps(items))
+            return
         except Exception:
             pass
+    # 本地文件兜底
+    try:
+        with open(_WATCHLIST_FILE, "w", encoding="utf-8") as f:
+            json.dump(items, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
 
 
 def _wl_resolve(raw: str) -> dict | None:
