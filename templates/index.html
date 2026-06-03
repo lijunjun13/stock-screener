@@ -1159,8 +1159,11 @@ function _drawKline(divId, rows, maWindows, initRange) {
 
   // ── 触控板缩放 / 平移 ────────────────────────────────────────────────────
   const MAX_BARS = 500;
+  // 自维护状态，不从 Plotly 回读（回读中间态会导致抖动）
+  let _r0 = _initR0, _r1 = _initR1;
   let _klineRaf = null;
   let _yTimer   = null;
+  let _pending  = false;
 
   function _clamp(r0, r1) {
     if (r1 - r0 > MAX_BARS) { const m = (r0+r1)/2; r0 = m-MAX_BARS/2; r1 = m+MAX_BARS/2; }
@@ -1171,37 +1174,37 @@ function _drawKline(divId, rows, maWindows, initRange) {
 
   divEl.addEventListener('wheel', e => {
     e.preventDefault();
-    if (_klineRaf) cancelAnimationFrame(_klineRaf);
-    _klineRaf = requestAnimationFrame(() => {
-      try {
-        const xa = divEl._fullLayout.xaxis;
-        let [r0, r1] = xa.range.map(Number);
-        const span = r1 - r0;
-        const isPan = Math.abs(e.deltaX) >= Math.abs(e.deltaY);
+    const span = _r1 - _r0;
+    const isPan = Math.abs(e.deltaX) >= Math.abs(e.deltaY);
 
-        if (isPan) {
-          // 平移：只更新 X 轴，Y 轴延迟更新
-          const shift = span * e.deltaX * 0.004;
-          [r0, r1] = _clamp(r0 + shift, r1 + shift);
-          Plotly.relayout(divEl, { 'xaxis.range': [r0, r1] });
-          clearTimeout(_yTimer);
-          _yTimer = setTimeout(() => {
-            try {
-              const [cr0, cr1] = divEl._fullLayout.xaxis.range.map(Number);
-              Plotly.relayout(divEl, _fitYAxis(cr0, cr1));
-            } catch (_) {}
-          }, 150);
-        } else {
-          // 缩放：同时更新 X 和 Y
-          const factor = e.deltaY > 0 ? 1.12 : (1 / 1.12);
-          const mid = (r0 + r1) / 2;
-          const ns  = Math.max(5, Math.min(MAX_BARS, span * factor));
-          [r0, r1] = _clamp(mid - ns/2, mid + ns/2);
-          Plotly.relayout(divEl, { 'xaxis.range': [r0, r1], ..._fitYAxis(r0, r1) });
-        }
-        if (r0 < 10) _loadMoreKline(divId);
-      } catch (_) {}
-    });
+    if (isPan) {
+      const shift = span * e.deltaX * 0.004;
+      [_r0, _r1] = _clamp(_r0 + shift, _r1 + shift);
+    } else {
+      const factor = e.deltaY > 0 ? 1.12 : (1 / 1.12);
+      const mid = (_r0 + _r1) / 2;
+      const ns  = Math.max(5, Math.min(MAX_BARS, span * factor));
+      [_r0, _r1] = _clamp(mid - ns/2, mid + ns/2);
+    }
+
+    if (!_pending) {
+      _pending = true;
+      requestAnimationFrame(() => {
+        _pending = false;
+        try {
+          if (isPan) {
+            Plotly.relayout(divEl, { 'xaxis.range': [_r0, _r1] });
+            clearTimeout(_yTimer);
+            _yTimer = setTimeout(() => {
+              try { Plotly.relayout(divEl, _fitYAxis(_r0, _r1)); } catch (_) {}
+            }, 150);
+          } else {
+            Plotly.relayout(divEl, { 'xaxis.range': [_r0, _r1], ..._fitYAxis(_r0, _r1) });
+          }
+          if (_r0 < 10) _loadMoreKline(divId);
+        } catch (_) {}
+      });
+    }
   }, { passive: false });
 }
 
