@@ -500,89 +500,92 @@ def _to_tencent_code(bs_code: str) -> str:
     return bs_code.replace(".", "")
 
 
-def _fetch_all_codes() -> list[str]:
-    cached = _get("all_codes", ttl=86400)
-    if cached:
+def _fetch_a_stock_list(threshold_yi: float = 0.0) -> list[dict]:
+    """Fetch A-share list (沪深主板 + 创业板) from Eastmoney push2 clist.
+
+    Returns list of dicts sorted by market cap descending, each with:
+      代码, 名称, 市值亿, 最新价, 涨跌幅, pe, _tc
+    Cached for 24 h.  threshold_yi filters out stocks below that market cap.
+    """
+    cache_key = "a_stock_list_v1"
+    cached = _get(cache_key, ttl=86400)
+    if cached is not None:
         return cached
-    bs.login()
-    # Walk back up to 10 days to find the most recent trading day with data
-    codes: list[str] = []
-    for delta in range(0, 10):
-        day = (datetime.now() - timedelta(days=delta)).strftime("%Y-%m-%d")
-        rs  = bs.query_all_stock(day=day)
-        while rs.next():
-            row = rs.get_row_data()
-            c = row[0]
-            is_sh      = c.startswith("sh.6") and len(c) == 9
-            is_sz_main = c.startswith("sz.0") and len(c) == 9
-            is_chinext = c.startswith("sz.3") and not c.startswith("sz.39") and len(c) == 9
-            if is_sh or is_sz_main or is_chinext:
-                codes.append(_to_tencent_code(c))
-        if codes:
-            break  # found a valid trading day
-    bs.logout()
-    _set("all_codes", codes)
-    return codes
 
-
-def _fetch_market_caps(codes: list[str], threshold_yi: float) -> list[dict]:
-    result = []
-    BATCH = 80
-    for i in range(0, len(codes), BATCH):
-        batch = codes[i : i + BATCH]
-        url = f"https://qt.gtimg.cn/q={','.join(batch)}"
-        for attempt in range(3):
-            try:
-                r = _sess.get(url, timeout=10)
-                r.raise_for_status()
+    result: list[dict] = []
+    try:
+        PAGE = 500
+        page  = 1
+        while True:
+            r = _em_sess.get(
+                "https://push2delay.eastmoney.com/api/qt/clist/get",
+                params={
+                    "pn":   str(page), "pz": str(PAGE),
+                    "po":   "1",       "np": "1",
+                    "ut":   "bd1d9ddb04089700cf9c27f6f7426281",
+                    "fltt": "2",       "invt": "2", "fid": "f20",
+                    # 沪深主板 + 创业板（不含科创板/北交所）
+                    "fs":   "m:0+t:6,m:1+t:2,m:1+t:23",
+                    "fields": "f2,f3,f9,f12,f14,f20",
+                },
+                timeout=15,
+            )
+            data = r.json().get("data") or {}
+            diff = data.get("diff") or []
+            if not diff:
                 break
-            except Exception:
-                if attempt == 2:
-                    raise
-                time.sleep(1)
-        for line in r.text.strip().split(";\n"):
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                payload = line.split('"')[1]
-            except IndexError:
-                continue
-            fields = payload.split("~")
-            if len(fields) < 47:
-                continue
-            try:
-                mktcap = float(fields[44])
-            except (ValueError, IndexError):
-                continue
-            if mktcap < threshold_yi:
-                continue
-            try:
-                price = float(fields[3])
-                chg   = float(fields[32]) if len(fields) > 32 else 0.0
-            except (ValueError, IndexError):
-                price, chg = 0.0, 0.0
-            try:
-                pe_raw = float(fields[53]) if len(fields) > 53 else 0.0
-                # Tencent returns negative PE for loss-making; keep raw value
-                pe = round(pe_raw, 1) if -9999 < pe_raw < 9999 else 0.0
-            except (ValueError, IndexError):
-                pe = 0.0
-            code_raw = fields[2]
-            market   = "sh" if code_raw.startswith("6") else "sz"
-            result.append(
-                {
-                    "代码":   code_raw,
-                    "名称":   fields[1],
+
+            for item in diff:
+                code = str(item.get("f12") or "").strip()
+                if not code:
+                    continue
+
+                try:
+                    mktcap = float(item.get("f20") or 0) / 1e8
+                except (TypeError, ValueError):
+                    continue
+                if mktcap <= 0:
+                    continue
+
+                try:
+                    price = round(float(item.get("f2") or 0), 2)
+                except (TypeError, ValueError):
+                    price = 0.0
+
+                try:
+                    chg = round(float(item.get("f3") or 0), 2)
+                except (TypeError, ValueError):
+                    chg = 0.0
+
+                try:
+                    pe_raw = float(item.get("f9") or 0)
+                    pe = round(pe_raw, 1) if -9999 < pe_raw < 9999 else 0.0
+                except (TypeError, ValueError):
+                    pe = 0.0
+
+                market = "sh" if code.startswith("6") else "sz"
+                result.append({
+                    "代码":   code,
+                    "名称":   str(item.get("f14") or ""),
                     "市值亿": round(mktcap, 1),
                     "最新价": price,
-                    "涨跌幅": round(chg, 2),
+                    "涨跌幅": chg,
                     "pe":     pe,
-                    "_tc":    f"{market}{code_raw}",
-                }
-            )
-        time.sleep(0.05)
+                    "_tc":    f"{market}{code}",
+                })
+
+            total = data.get("total") or 0
+            if page * PAGE >= total:
+                break
+            page += 1
+            time.sleep(0.2)
+
+    except Exception:
+        pass
+
     result.sort(key=lambda x: x["市值亿"], reverse=True)
+    if result:
+        _set(cache_key, result)
     return result
 
 
@@ -1444,8 +1447,10 @@ def get_stocks():
     if cached:
         return jsonify(cached)
     try:
-        codes  = _fetch_all_codes()
-        stocks = _fetch_market_caps(codes, threshold_yi=300.0)
+        all_stocks = _fetch_a_stock_list()
+        stocks = [s for s in all_stocks if s["市值亿"] >= 300.0]
+        if not stocks:
+            return jsonify({"success": False, "error": "股票列表为空，请稍后重试"}), 503
         payload = {"success": True, "data": stocks, "total": len(stocks)}
         _set("stock_list", payload)
         return jsonify(payload)
@@ -1829,7 +1834,7 @@ def get_stock_intraday(code: str):
                 prev_close = float(inner.get("preClose") or 0)
             except Exception:
                 pass
-        times, prices = [], []
+        times, prices, cum_vols = [], [], []
         for item in raw:
             if isinstance(item, str):
                 parts = item.split()
@@ -1837,12 +1842,18 @@ def get_stock_intraday(code: str):
                     t = parts[0].zfill(4)
                     times.append(f"{t[:2]}:{t[2:]}")
                     prices.append(float(parts[1]))
+                    cum_vols.append(int(parts[2]) if len(parts) >= 3 else 0)
             elif isinstance(item, (list, tuple)) and len(item) >= 2:
                 t = str(item[0]).zfill(4)
                 times.append(f"{t[:2]}:{t[2:]}")
                 prices.append(float(item[1]))
+                cum_vols.append(int(item[2]) if len(item) >= 3 else 0)
+        # diff cumulative volumes → per-minute volumes
+        volumes = []
+        for i, cv in enumerate(cum_vols):
+            volumes.append(max(0, cv - (cum_vols[i - 1] if i > 0 else 0)))
         return jsonify({"success": True, "times": times, "prices": prices,
-                        "prev_close": prev_close})
+                        "volumes": volumes, "prev_close": prev_close})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
 
@@ -1899,8 +1910,7 @@ def _build_trend_stock_list() -> dict:
     if cached:
         return cached
 
-    codes    = _fetch_all_codes()
-    a_stocks = _fetch_market_caps(codes, threshold_yi=100.0)
+    a_stocks = [s for s in _fetch_a_stock_list() if s["市值亿"] >= 100.0]
     a_codes  = {s["代码"] for s in a_stocks}
     etfs     = [e for e in _MAJOR_ETFS if e["代码"] not in a_codes]
     hk       = _fetch_hk_stocks()
@@ -2509,4 +2519,6 @@ def analyze_chart(code: str):
 
 
 if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0", port=5001)
+    port = int(os.environ.get("PORT", 5001))
+    debug = os.environ.get("FLASK_DEBUG", "0") == "1"
+    app.run(debug=debug, host="0.0.0.0", port=port)
