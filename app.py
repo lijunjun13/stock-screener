@@ -2368,77 +2368,79 @@ def analyze_stock(code: str):
 
         buf: list[str] = []
         try:
-            endpoint = os.environ.get(
-                "MODELHUB_ENDPOINT",
-                "https://aidp-i18ntt-sg.tiktok-row.net/api/modelhub/online/v2/crawl",
-            )
-            model = os.environ.get("MODELHUB_MODEL", "gemini-3-pro-preview-new")
-
-            client = _AzureOpenAI(
-                azure_endpoint=endpoint,
-                api_key=api_key,
-                api_version="2024-03-01-preview",
-            )
-
-            stream = client.chat.completions.create(
-                model=model,
-                stream=True,
-                messages=[{"role": "user", "content": prompt}],
-                tools=[{"type": "google_search"}],
-                tool_choice="auto",
-                max_tokens=10000,
-                extra_headers={"X-TT-LOGID": f"dp-finder-{code}"},
-            )
-
-            in_search   = False
-            search_n    = 0
-            tc_args     = {}   # tool_call index → accumulated arguments string
-            fin_reason  = None
-
-            for chunk in stream:
-                if not chunk.choices:
-                    continue
-                delta  = chunk.choices[0].delta
-                reason = chunk.choices[0].finish_reason
-
-                # ── tool call (google_search) chunks ─────────────────────────
-                if delta.tool_calls:
-                    for tc in delta.tool_calls:
-                        idx = tc.index
-                        if idx not in tc_args:
-                            # First chunk for this tool call → show spinner
-                            tc_args[idx] = ""
-                            if not in_search:
-                                in_search = True
-                                search_n += 1
-                                yield f"data: {json.dumps({'status': f'🔍 搜索中 ({search_n})…'})}\n\n"
-                        # Accumulate arguments JSON to extract query string
-                        if tc.function and tc.function.arguments:
-                            tc_args[idx] += tc.function.arguments
-                            try:
-                                args = json.loads(tc_args[idx])
-                                q = args.get("query", "")
-                                if q:
-                                    yield f"data: {json.dumps({'status': f'🔍 ({search_n}) {q}'})}\n\n"
-                            except (json.JSONDecodeError, AttributeError):
-                                pass  # still receiving partial JSON
-
-                # ── text content ─────────────────────────────────────────────
-                if delta.content:
-                    if in_search:
-                        in_search = False
-                        yield f"data: {json.dumps({'status': ''})}\n\n"
-                    buf.append(delta.content)
-                    yield f"data: {json.dumps({'text': delta.content})}\n\n"
-
-                if reason in ("stop", "length"):
-                    fin_reason = reason
-                    break
-
-            # Only cache complete responses; skip caching truncated ones
-            if fin_reason == "stop":
+            anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
+            if anthropic_key:
+                # ── Anthropic Claude（Render 等外网环境）────────────────────
+                import anthropic as _anthropic
+                ac = _anthropic.Anthropic(api_key=anthropic_key)
+                claude_model = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6")
+                with ac.messages.stream(
+                    model=claude_model,
+                    max_tokens=1024,
+                    messages=[{"role": "user", "content": prompt}],
+                ) as stream:
+                    for text in stream.text_stream:
+                        buf.append(text)
+                        yield f"data: {json.dumps({'text': text})}\n\n"
                 _set(cache_key, "".join(buf))
-            yield f"data: {json.dumps({'done': True})}\n\n"
+                yield f"data: {json.dumps({'done': True})}\n\n"
+            else:
+                # ── ByteDance ModelHub（内网环境，支持 Google 搜索）─────────
+                endpoint = os.environ.get(
+                    "MODELHUB_ENDPOINT",
+                    "https://aidp-i18ntt-sg.tiktok-row.net/api/modelhub/online/v2/crawl",
+                )
+                model = os.environ.get("MODELHUB_MODEL", "gemini-3-pro-preview-new")
+                client = _AzureOpenAI(
+                    azure_endpoint=endpoint,
+                    api_key=api_key,
+                    api_version="2024-03-01-preview",
+                )
+                stream = client.chat.completions.create(
+                    model=model, stream=True,
+                    messages=[{"role": "user", "content": prompt}],
+                    tools=[{"type": "google_search"}],
+                    tool_choice="auto", max_tokens=10000,
+                    extra_headers={"X-TT-LOGID": f"dp-finder-{code}"},
+                )
+                in_search = False
+                search_n  = 0
+                tc_args: dict = {}
+                fin_reason = None
+                for chunk in stream:
+                    if not chunk.choices:
+                        continue
+                    delta  = chunk.choices[0].delta
+                    reason = chunk.choices[0].finish_reason
+                    if delta.tool_calls:
+                        for tc in delta.tool_calls:
+                            idx = tc.index
+                            if idx not in tc_args:
+                                tc_args[idx] = ""
+                                if not in_search:
+                                    in_search = True
+                                    search_n += 1
+                                    yield f"data: {json.dumps({'status': f'🔍 搜索中 ({search_n})…'})}\n\n"
+                            if tc.function and tc.function.arguments:
+                                tc_args[idx] += tc.function.arguments
+                                try:
+                                    q = json.loads(tc_args[idx]).get("query", "")
+                                    if q:
+                                        yield f"data: {json.dumps({'status': f'🔍 ({search_n}) {q}'})}\n\n"
+                                except (json.JSONDecodeError, AttributeError):
+                                    pass
+                    if delta.content:
+                        if in_search:
+                            in_search = False
+                            yield f"data: {json.dumps({'status': ''})}\n\n"
+                        buf.append(delta.content)
+                        yield f"data: {json.dumps({'text': delta.content})}\n\n"
+                    if reason in ("stop", "length"):
+                        fin_reason = reason
+                        break
+                if fin_reason == "stop":
+                    _set(cache_key, "".join(buf))
+                yield f"data: {json.dumps({'done': True})}\n\n"
         except Exception as exc:
             yield f"data: {json.dumps({'error': str(exc)})}\n\n"
 
@@ -2511,89 +2513,82 @@ def analyze_chart(code: str):
 
         buf: list[str] = []
         try:
-            endpoint = os.environ.get(
-                "MODELHUB_ENDPOINT",
-                "https://aidp-i18ntt-sg.tiktok-row.net/api/modelhub/online/v2/crawl",
-            )
-            model = os.environ.get("MODELHUB_MODEL", "gemini-3-pro-preview-new")
-
-            client = _AzureOpenAI(
-                azure_endpoint=endpoint,
-                api_key=api_key,
-                api_version="2024-03-01-preview",
-            )
-
-            messages = [
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": image_b64},
-                        },
-                        {
-                            "type": "text",
-                            "text": prompt,
-                        },
-                    ],
-                }
-            ]
-
-            stream = client.chat.completions.create(
-                model=model,
-                stream=True,
-                messages=messages,
-                tools=[{"type": "google_search"}],
-                tool_choice="auto",
-                max_tokens=10000,
-                extra_headers={"X-TT-LOGID": f"dp-finder-phase-{code}"},
-            )
-
-            in_search  = False
-            search_n   = 0
-            tc_args: dict = {}
-            fin_reason = None
-
-            for chunk in stream:
-                if not chunk.choices:
-                    continue
-                delta = chunk.choices[0].delta
-                reason = chunk.choices[0].finish_reason
-
-                if delta.tool_calls:
-                    for tc in delta.tool_calls:
-                        idx = tc.index
-                        if idx not in tc_args:
-                            tc_args[idx] = ""
-                            if not in_search:
-                                in_search = True
-                                search_n += 1
-                                yield f"data: {json.dumps({'status': f'🔍 搜索中 ({search_n})…'})}\n\n"
-                        if tc.function and tc.function.arguments:
-                            tc_args[idx] += tc.function.arguments
-                            try:
-                                args = json.loads(tc_args[idx])
-                                q = args.get("query", "")
-                                if q:
-                                    yield f"data: {json.dumps({'status': f'🔍 ({search_n}) {q}'})}\n\n"
-                            except (json.JSONDecodeError, AttributeError):
-                                pass
-
-                if delta.content:
-                    if in_search:
-                        in_search = False
-                        yield f"data: {json.dumps({'status': ''})}\n\n"
-                    buf.append(delta.content)
-                    yield f"data: {json.dumps({'text': delta.content})}\n\n"
-
-                if reason in ("stop", "length"):
-                    fin_reason = reason
-                    break
-
-            # Only cache complete responses; skip caching truncated ones
-            if fin_reason == "stop":
+            anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
+            if anthropic_key:
+                # ── Anthropic Claude with vision（外网环境）──────────────────
+                import anthropic as _anthropic
+                ac = _anthropic.Anthropic(api_key=anthropic_key)
+                claude_model = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6")
+                # 提取 base64 数据
+                img_data = image_b64.split(",", 1)[-1] if "," in image_b64 else image_b64
+                with ac.messages.stream(
+                    model=claude_model,
+                    max_tokens=1024,
+                    messages=[{"role": "user", "content": [
+                        {"type": "image", "source": {
+                            "type": "base64", "media_type": "image/png", "data": img_data,
+                        }},
+                        {"type": "text", "text": prompt},
+                    ]}],
+                ) as stream:
+                    for text in stream.text_stream:
+                        buf.append(text)
+                        yield f"data: {json.dumps({'text': text})}\n\n"
                 _set(cache_key, "".join(buf))
-            yield f"data: {json.dumps({'done': True})}\n\n"
+                yield f"data: {json.dumps({'done': True})}\n\n"
+            else:
+                # ── ByteDance ModelHub with vision（内网环境）────────────────
+                endpoint = os.environ.get(
+                    "MODELHUB_ENDPOINT",
+                    "https://aidp-i18ntt-sg.tiktok-row.net/api/modelhub/online/v2/crawl",
+                )
+                model = os.environ.get("MODELHUB_MODEL", "gemini-3-pro-preview-new")
+                client = _AzureOpenAI(
+                    azure_endpoint=endpoint, api_key=api_key,
+                    api_version="2024-03-01-preview",
+                )
+                messages = [{"role": "user", "content": [
+                    {"type": "image_url", "image_url": {"url": image_b64}},
+                    {"type": "text", "text": prompt},
+                ]}]
+                stream = client.chat.completions.create(
+                    model=model, stream=True, messages=messages,
+                    tools=[{"type": "google_search"}], tool_choice="auto",
+                    max_tokens=10000,
+                    extra_headers={"X-TT-LOGID": f"dp-finder-phase-{code}"},
+                )
+                in_search = False; search_n = 0; tc_args: dict = {}; fin_reason = None
+                for chunk in stream:
+                    if not chunk.choices: continue
+                    delta = chunk.choices[0].delta
+                    reason = chunk.choices[0].finish_reason
+                    if delta.tool_calls:
+                        for tc in delta.tool_calls:
+                            idx = tc.index
+                            if idx not in tc_args:
+                                tc_args[idx] = ""
+                                if not in_search:
+                                    in_search = True; search_n += 1
+                                    yield f"data: {json.dumps({'status': f'🔍 搜索中 ({search_n})…'})}\n\n"
+                            if tc.function and tc.function.arguments:
+                                tc_args[idx] += tc.function.arguments
+                                try:
+                                    q = json.loads(tc_args[idx]).get("query", "")
+                                    if q:
+                                        yield f"data: {json.dumps({'status': f'🔍 ({search_n}) {q}'})}\n\n"
+                                except (json.JSONDecodeError, AttributeError):
+                                    pass
+                    if delta.content:
+                        if in_search:
+                            in_search = False
+                            yield f"data: {json.dumps({'status': ''})}\n\n"
+                        buf.append(delta.content)
+                        yield f"data: {json.dumps({'text': delta.content})}\n\n"
+                    if reason in ("stop", "length"):
+                        fin_reason = reason; break
+                if fin_reason == "stop":
+                    _set(cache_key, "".join(buf))
+                yield f"data: {json.dumps({'done': True})}\n\n"
         except Exception as exc:
             yield f"data: {json.dumps({'error': str(exc)})}\n\n"
 
