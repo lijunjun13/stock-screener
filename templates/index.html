@@ -1397,6 +1397,25 @@ function drawChart(d, name, code) {
     series.setData(dates.map((dt, i) => vals[i] > 0 ? { time: _d2lwc(dt), value: vals[i] } : null).filter(Boolean));
   }
 
+  // ── 止损警戒带（3×ATR ~ 4×ATR 回撤）────────────────────────────────────
+  // 使用 BaselineSeries：以 4×ATR 止损位为 baseline，数据线设在 3×ATR 处，
+  // topFill（baseline 以上）= 橙色半透明条带，bottomFill = 透明（不遮历史低价）
+  if (d.sl_3atr && d.sl_4atr && d.sl_3atr > 0 && d.sl_4atr > 0) {
+    const atrBand = priceChart.addBaselineSeries({
+      baseValue:        { type: 'price', price: d.sl_4atr },
+      topLineColor:     'rgba(251,146,60,.85)',
+      topFillColor1:    'rgba(251,146,60,.18)',
+      topFillColor2:    'rgba(251,146,60,.08)',
+      bottomLineColor:  'rgba(239,68,68,.85)',
+      bottomFillColor1: 'rgba(0,0,0,0)',
+      bottomFillColor2: 'rgba(0,0,0,0)',
+      lineWidth: 1,
+      priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+      autoscaleInfoProvider: () => null,
+    });
+    atrBand.setData(d.dates.map(dt => ({ time: _d2lwc(dt), value: d.sl_3atr })));
+  }
+
   // ── 价格线 ──────────────────────────────────────────────────────────────
   const priceSeries = priceChart.addLineSeries({ color: '#58a6ff', lineWidth: 1.5,
     priceLineVisible: true, priceLineWidth: 1, priceLineStyle: LS.Dashed,

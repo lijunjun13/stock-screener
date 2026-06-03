@@ -850,7 +850,7 @@ def _compute_pe_payload(tc_code: str, code: str) -> dict | None:
     }
 
     # ── Decompose: log(hfq_return) = log(EPS+dividend growth) + log(PE change) ──
-    main = _get(f"hist_{code}", ttl=86400)
+    main = _get(f"hist_v2_{code}", ttl=86400)
     if main and main.get("success"):
         price_dates = main["dates"]
         prices_hfq  = main["prices"]
@@ -913,7 +913,7 @@ def _compute_pe_payload(tc_code: str, code: str) -> dict | None:
 
 def _compute_regression_payload(tc_code: str, code: str) -> dict | None:
     """Fetch kline + compute both regressions. Returns and caches the full payload."""
-    cache_key = f"hist_{code}"
+    cache_key = f"hist_v2_{code}"
     cached = _get(cache_key, ttl=86400)
     if cached and cached.get("success"):
         return cached
@@ -984,6 +984,14 @@ def _compute_regression_payload(tc_code: str, code: str) -> dict | None:
         }
 
     cur_price = float(arr[-1])
+
+    # ── ATR：最近50日平均绝对日收益率（%）──────────────────────────────────────
+    rets_50 = [abs(closes[i] / closes[i-1] - 1) * 100
+               for i in range(max(1, len(closes) - 50), len(closes))]
+    atr_pct = round(sum(rets_50) / len(rets_50), 2) if rets_50 else 0.0
+    sl_3atr = round(cur_price * (1 - 3 * atr_pct / 100), 4)
+    sl_4atr = round(cur_price * (1 - 4 * atr_pct / 100), 4)
+
     lower_band,    upper_band,    band_stats_5 = _band_stats(
         s5, b5, x_5y,  ly_5y,  x_all, arr[split_idx:],    cur_price)
     lower_band_3y, upper_band_3y, band_stats_3 = _band_stats(
@@ -991,6 +999,9 @@ def _compute_regression_payload(tc_code: str, code: str) -> dict | None:
 
     payload = {
         "success":        True,
+        "atr_pct":        atr_pct,
+        "sl_3atr":        sl_3atr,
+        "sl_4atr":        sl_4atr,
         "dates":          dates,
         "prices":         [round(v, 4) for v in closes],
         "reg_10y":        [round(v, 4) for v in reg_10y],
@@ -2346,7 +2357,7 @@ def get_portfolio():
 
     series: dict[str, tuple[list[str], list[float]]] = {}
     for code in codes:
-        cached = _get(f"hist_{code}", ttl=86400)
+        cached = _get(f"hist_v2_{code}", ttl=86400)
         if cached and cached.get("success"):
             series[code] = (cached["dates"], cached["prices"])
             continue
@@ -2434,7 +2445,7 @@ def get_portfolio():
     component_stats = []
     for code in valid_codes:
         entry = {"code": code, "name": name_map.get(code, code)}
-        cached = _get(f"hist_{code}", ttl=86400)
+        cached = _get(f"hist_v2_{code}", ttl=86400)
         if cached and cached.get("success"):
             entry.update({
                 "r2_10": round(cached["stats_10y"]["r_squared"] * 100, 1),
@@ -2503,7 +2514,7 @@ def analyze_stock(code: str):
 
     api_key = os.environ.get("MODELHUB_API_KEY", "0wEyJRUC23zEedqDxEAtc81kZmoS5W9p")
 
-    hist_data = _get(f"hist_{code}", ttl=86400)
+    hist_data = _get(f"hist_v2_{code}", ttl=86400)
     if not hist_data:
         return jsonify({"error": "请先在图表页加载该股票数据"}), 400
 
@@ -2678,7 +2689,7 @@ def analyze_chart(code: str):
                 break
 
     # Get actual chart date range from cached hist data
-    hist_data = _get(f"hist_{code}", ttl=86400)
+    hist_data = _get(f"hist_v2_{code}", ttl=86400)
     chart_start, chart_end = "", ""
     if hist_data:
         dates = hist_data.get("dates", [])
