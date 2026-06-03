@@ -1191,8 +1191,7 @@ function _drawIntraday(divId, data) {
     rightPriceScale: { visible: true,  borderColor: 'rgba(255,255,255,.1)',
                        ticksVisible: true,
                        scaleMargins: { top: 0.05, bottom: 0.25 } },
-    timeScale: { borderColor: 'rgba(255,255,255,.1)', timeVisible: true, secondsVisible: false,
-                 fixLeftEdge: true, fixRightEdge: true },
+    timeScale: { borderColor: 'rgba(255,255,255,.1)', timeVisible: true, secondsVisible: false },
     handleScroll: false,
     handleScale:  false,
   });
@@ -1237,6 +1236,8 @@ function _drawIntraday(divId, data) {
     value: +(v / 100).toFixed(2),
     color: prices[i] >= (i === 0 ? ref : prices[i-1]) ? 'rgba(220,60,60,0.75)' : 'rgba(40,170,80,0.75)',
   })));
+
+  chart.timeScale().fitContent();
 
   _lwcState.set(divId, { chart });
   const ro = new ResizeObserver(() => chart.applyOptions({ width: divEl.clientWidth, height: divEl.clientHeight }));
