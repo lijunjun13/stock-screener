@@ -3514,9 +3514,7 @@ async function wlToggle(code, name) {
     });
     const d = await r.json();
     if (!d.success) { alert(d.error || '添加失败'); return; }
-    _wlStocks = [..._wlStocks, d.stock];
-    wlRender();
-    renderTable();
+    await wlLoad(); // 重新拉含实时行情的完整列表
   }
 }
 
