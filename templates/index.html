@@ -1035,12 +1035,13 @@ function _drawKline(divId, rows, maWindows, initRange) {
   });
 
   // 初始可见范围（末尾 150 根，或由 load-more 传入）
-  const _initR0 = initRange ? initRange[0] : Math.max(-0.5, n - 150);
-  const _initR1 = initRange ? initRange[1] : n - 0.5;
+  const _nTotal = dates.length;
+  const _initR0 = initRange ? initRange[0] : Math.max(-0.5, _nTotal - 150);
+  const _initR1 = initRange ? initRange[1] : _nTotal - 0.5;
 
   // 初始 Y 轴范围（根据可见数据计算）
   const _ii0 = Math.max(0, Math.floor(_initR0));
-  const _ii1 = Math.min(n - 1, Math.ceil(_initR1));
+  const _ii1 = Math.min(_nTotal - 1, Math.ceil(_initR1));
   const _vl  = lows.slice(_ii0, _ii1 + 1).filter(v => v > 0);
   const _vh  = highs.slice(_ii0, _ii1 + 1).filter(v => v > 0);
   let _initY = undefined;
