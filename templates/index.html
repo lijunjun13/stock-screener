@@ -3722,8 +3722,10 @@ function renderTrendResults() {
     slopeMax = sorted[Math.max(0, cutoffIdx)];
   }
 
-  let rows = trendAllResults.filter(s => {
-    // Exclude stocks listed < 1 year: closes_52w will be null once 52w data is fetched
+  // 自选股始终保留，不受任何过滤规则影响
+  const _wlCodeSet = new Set(_wlStocks.map(w => w.code));
+
+  const _passFilter = s => {
     if (_closes52wCache.has(s.代码) && !_closes52wCache.get(s.代码).closes_52w) return false;
     if (!isNaN(fSlopeMin) && s.trend_slope < fSlopeMin) return false;
     if (s.trend_slope > slopeMax)                        return false;
@@ -3731,7 +3733,6 @@ function renderTrendResults() {
       if (s.trend_slope > fGainMax * s.atr_50d) return false;
     }
     if (!isNaN(fR2) && s.sigma_res > fR2) return false;
-    // ETFs bypass market-cap and PE filters (no meaningful PE; AUM not comparable)
     if (!s.is_etf) {
       if (!isNaN(fMktMin) && s.市值亿 < fMktMin) return false;
       if (!isNaN(fMktMax) && s.市值亿 > fMktMax) return false;
@@ -3739,9 +3740,6 @@ function renderTrendResults() {
     }
     if (exBank && isBank(s.industry_board))               return false;
     if (exCyc  && isCyclical(s.industry_board))           return false;
-    // Momentum filter: exclude if price has pulled back too far from recent high,
-    // OR if 7-day high is already below 30-day high (earlier peak).
-    // Catches both "just topped" and "topped weeks ago" cases.
     if (document.getElementById('tFExcludeReverse').checked) {
       if (s.max_high_7d > 0 && s.last_close > 0 && s.atr_50d > 0) {
         const dd = (1 - s.last_close / s.max_high_7d) * 100;
@@ -3749,7 +3747,10 @@ function renderTrendResults() {
       }
     }
     return true;
-  });
+  };
+
+  const wlPinned  = trendAllResults.filter(s => _wlCodeSet.has(s.代码));
+  let rows = trendAllResults.filter(s => !_wlCodeSet.has(s.代码) && _passFilter(s));
 
   // Score = slope^1.1 / (1 + σ_res): 斜率取 1.1 次方后再除噪声项
   const score = s => s.trend_slope > 0
@@ -3906,6 +3907,13 @@ function renderTrendResults() {
     });
     rows.sort((a, b) => b._adj_score - a._adj_score);
   }
+  // 自选股置顶（按得分排序后插到最前面，不参与 _orig_rank / penalty 计算）
+  wlPinned.forEach(s => {
+    const c = _closes52wCache.get(s.代码);
+    if (c && s.pct10w == null) { s.closes_52w = c.closes_52w; s.pct10w = c.pct10w; s.pct20w = c.pct20w; }
+  });
+  wlPinned.sort((a, b) => score(b) - score(a));
+  rows = [...wlPinned, ...rows];
   rows.forEach((s, i) => { s._new_rank = i + 1; });    // rank after penalty
   window._trendRows  = rows;        // expose for correlation hover panel
   window._trendLrMap = _lrMap;
@@ -3992,8 +4000,10 @@ function renderTrendResults() {
       ? `event.stopPropagation();window.open('https://quote.eastmoney.com/${s._tc || s.代码}.html','_blank')`
       : `event.stopPropagation();openModal('${s.代码}','${s.名称}')`;
 
-    return `<tr onclick="${rowClick}">
-      <td class="rank">${s._new_rank}${rankBadge}</td>
+    const isWlPin = _wlCodeSet.has(s.代码);
+    const trStyle = isWlPin ? ' style="background:rgba(227,179,65,.06);border-left:2px solid #e3b341"' : '';
+    return `<tr onclick="${rowClick}"${trStyle}>
+      <td class="rank">${isWlPin ? '⭐' : s._new_rank}${rankBadge}</td>
       <td class="code">${s.代码}${typeBadge}</td>
       <td style="white-space:nowrap">${s.名称}${momBadge}${wlBtnT}<span
         onmouseenter="showCorrPanel('${s.代码}',this)"
