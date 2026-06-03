@@ -1161,9 +1161,7 @@ function _drawKline(divId, rows, maWindows, initRange) {
   const MAX_BARS = 500;
   // 自维护状态，不从 Plotly 回读（回读中间态会导致抖动）
   let _r0 = _initR0, _r1 = _initR1;
-  let _klineRaf = null;
-  let _yTimer   = null;
-  let _pending  = false;
+  let _pending = false;
 
   function _clamp(r0, r1) {
     if (r1 - r0 > MAX_BARS) { const m = (r0+r1)/2; r0 = m-MAX_BARS/2; r1 = m+MAX_BARS/2; }
@@ -1192,15 +1190,7 @@ function _drawKline(divId, rows, maWindows, initRange) {
       requestAnimationFrame(() => {
         _pending = false;
         try {
-          if (isPan) {
-            Plotly.relayout(divEl, { 'xaxis.range': [_r0, _r1] });
-            clearTimeout(_yTimer);
-            _yTimer = setTimeout(() => {
-              try { Plotly.relayout(divEl, _fitYAxis(_r0, _r1)); } catch (_) {}
-            }, 150);
-          } else {
-            Plotly.relayout(divEl, { 'xaxis.range': [_r0, _r1], ..._fitYAxis(_r0, _r1) });
-          }
+          Plotly.relayout(divEl, { 'xaxis.range': [_r0, _r1], ..._fitYAxis(_r0, _r1) });
           if (_r0 < 10) _loadMoreKline(divId);
         } catch (_) {}
       });
