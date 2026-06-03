@@ -1361,7 +1361,7 @@ function drawChart(d, name, code) {
     crosshair: { mode: LightweightCharts.CrosshairMode.Normal,
       vertLine: { labelBackgroundColor: '#21262d' },
       horzLine: { labelBackgroundColor: '#21262d' } },
-    timeScale:    { borderColor: '#30363d' },
+    timeScale:    { borderColor: '#30363d', minBarSpacing: 0.1 },
     handleScroll: true, handleScale: true,
   };
 
@@ -1464,15 +1464,8 @@ function drawChart(d, name, code) {
     });
   }
 
-  // 用 setVisibleRange 直接指定日期范围，绕过 minBarSpacing 对 fitContent 的限制
-  if (d.dates && d.dates.length > 0) {
-    priceChart.timeScale().setVisibleRange({
-      from: d.dates[0],
-      to:   d.dates[d.dates.length - 1],
-    });
-  } else {
-    priceChart.timeScale().fitContent();
-  }
+  // minBarSpacing 已降至 0.1，fitContent 可以完整展示 10 年日 K
+  priceChart.timeScale().fitContent();
 }
 
 // ── year window toggle ────────────────────────────────────────────────────────
