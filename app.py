@@ -690,24 +690,40 @@ def _fetch_kline_range(tc_code: str, start: str, end: str) -> tuple[list[str], l
 
 
 def _fetch_kline_hfq(tc_code: str, years: int = 10) -> tuple[list[str], list[float]]:
-    """冷热分离缓存：历史段（10年→50天前）缓存50天，近期段（50天内）缓存24小时。"""
-    today   = datetime.now()
-    end     = today.strftime("%Y-%m-%d")
-    cutoff  = (today - timedelta(days=50)).strftime("%Y-%m-%d")
+    """冷热分离缓存：历史段缓存50天，近期段缓存24小时。
+
+    cutoff（历史段结束日期）存入历史段 payload，近期段始终从该 cutoff 开始拉取，
+    保证两段无缝衔接，不会因 cutoff 随时间漂移而出现空洞。
+    历史段过期重建时，同步清除近期段缓存使其重新拉取。
+    """
+    today      = datetime.now()
+    end        = today.strftime("%Y-%m-%d")
     hist_start = (today - timedelta(days=years * 365 + 10)).strftime("%Y-%m-%d")
 
-    # ── 历史段：TTL 50天 ──────────────────────────────────────────────────────
+    # ── 历史段（10年 → cutoff），TTL 50天 ────────────────────────────────────
     hist = _get(f"kline_hist_{tc_code}", ttl=86400 * 50)
     if not hist:
+        cutoff = (today - timedelta(days=50)).strftime("%Y-%m-%d")
         h_dates, h_closes = _fetch_kline_range(tc_code, hist_start, cutoff)
         if h_dates:
-            hist = {"dates": h_dates, "closes": h_closes}
+            hist = {"dates": h_dates, "closes": h_closes, "cutoff": cutoff}
             _set(f"kline_hist_{tc_code}", hist)
+            # 历史段更新，清除近期段让其从新 cutoff 重拉
+            if _redis:
+                try:
+                    _redis.delete(f"kline_recent_{tc_code}")
+                except Exception:
+                    pass
+            else:
+                with _cache_lock:
+                    _cache.pop(f"kline_recent_{tc_code}", None)
 
-    # ── 近期段：TTL 24小时 ────────────────────────────────────────────────────
+    # ── 近期段（cutoff → 今天），TTL 24小时 ──────────────────────────────────
+    # 始终从历史段存储的 cutoff 开始，而不是重新算"今天-50天"
+    recent_start = (hist or {}).get("cutoff") or (today - timedelta(days=55)).strftime("%Y-%m-%d")
     recent = _get(f"kline_recent_{tc_code}", ttl=86400)
     if not recent:
-        r_dates, r_closes = _fetch_kline_range(tc_code, cutoff, end)
+        r_dates, r_closes = _fetch_kline_range(tc_code, recent_start, end)
         if r_dates:
             recent = {"dates": r_dates, "closes": r_closes}
             _set(f"kline_recent_{tc_code}", recent)
