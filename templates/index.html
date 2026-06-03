@@ -1000,11 +1000,20 @@ function _computeMA(closes, n) {
   );
 }
 
-const _klineState = new Map(); // divId → {rows, loading, maWindows}
+const _klineState = new Map(); // divId → {allRows, winStart, loading, maWindows, _r0, _r1}
+const _KLINE_RENDER = 500; // Plotly 最多渲染这么多根
 
 function _drawKline(divId, rows, maWindows, initRange) {
   if (!rows || !rows.length) { _stError(divId, '暂无K线数据'); return; }
-  _klineState.set(divId, {rows, loading: false, maWindows: maWindows || [5,10,20]});
+  // 初次渲染时建立 state；load-more 时 allRows/winStart 由 _loadMoreKline 管理
+  const prev = _klineState.get(divId);
+  _klineState.set(divId, {
+    allRows:   prev?.allRows  || rows,   // master 数据
+    winStart:  prev?.winStart || 0,      // 当前渲染窗口在 allRows 中的起始索引
+    loading:   false,
+    maWindows: maWindows || [5, 10, 20],
+    _r0: null, _r1: null,               // 由 wheel handler 持续更新
+  });
 
   // 清除旧内容
   const divEl = document.getElementById(divId);
@@ -1206,6 +1215,9 @@ function _drawKline(divId, rows, maWindows, initRange) {
         _pending = false;
         try {
           Plotly.relayout(divEl, { 'xaxis.range': [_r0, _r1], ..._fitYAxis(_r0, _r1) });
+          // 同步最新坐标到 state 供 _loadMoreKline 读取
+          const st = _klineState.get(divId);
+          if (st) { st._r0 = _r0; st._r1 = _r1; }
           if (_r0 < 10) _loadMoreKline(divId);
         } catch (_) {}
       });
@@ -1218,21 +1230,39 @@ async function _loadMoreKline(divId) {
   if (!st || st.loading || !_currentCode) return;
   st.loading = true;
 
-  const firstDate = st.rows[0].date;
+  const firstDate = st.allRows[0].date;
   try {
     const resp = await fetch(`/api/stock/kline/${_currentCode}?before=${firstDate}`);
     const d = await resp.json();
-    if (!d.success || !d.daily || !d.daily.length) { st.loading = false; return; }
+    if (!d.success || !d.daily?.length) { st.loading = false; return; }
 
     const newRows = d.daily.filter(r => r.date < firstDate);
     if (!newRows.length) { st.loading = false; return; }
 
-    const el = document.getElementById(divId);
-    const [r0, r1] = el._fullLayout.xaxis.range.map(Number);
-    const added = newRows.length;
-    const allRows = [...newRows, ...st.rows];
+    const added   = newRows.length;
+    const newAll  = [...newRows, ...st.allRows];
+    const allLen  = newAll.length;
 
-    _drawKline(divId, allRows, st.maWindows, [r0 + added, r1 + added]);
+    // 当前视图在新全局坐标中的位置
+    const curR0 = (st._r0 ?? 0) + (st.winStart ?? 0) + added;
+    const curR1 = (st._r1 ?? _KLINE_RENDER) + (st.winStart ?? 0) + added;
+    const center = (curR0 + curR1) / 2;
+
+    // 计算渲染窗口（最多 _KLINE_RENDER 根）
+    let wStart = Math.max(0, Math.round(center - _KLINE_RENDER / 2));
+    let wEnd   = Math.min(allLen, wStart + _KLINE_RENDER);
+    if (wEnd - wStart < _KLINE_RENDER) wStart = Math.max(0, wEnd - _KLINE_RENDER);
+
+    const renderRows = newAll.slice(wStart, wEnd);
+    const localR0 = curR0 - wStart;
+    const localR1 = curR1 - wStart;
+
+    // 更新 master state（_drawKline 会重建 state，之后恢复 allRows/winStart）
+    st.allRows   = newAll;
+    st.winStart  = wStart;
+    _drawKline(divId, renderRows, st.maWindows, [localR0, localR1]);
+
+    // 恢复 master 信息（_drawKline 会用 prev 读取，已在上面更新过 st）
   } catch (_) {}
   const s2 = _klineState.get(divId);
   if (s2) s2.loading = false;
