@@ -1167,11 +1167,14 @@ function _drawIntraday(divId, data) {
     return prices.map((p, i) => { const v = volumes[i]||0; ca+=p*v; cv+=v; return cv>0?ca/cv:p; });
   })();
 
-  // 时间戳（用今天日期 + 分时时间合成 Unix 秒）
-  const today = new Date();
+  // 时间戳：用 Date.UTC 把时间字符串当作 UTC 处理，让 LWC 显示正确的东八区时间
+  // 同时取东八区的今日日期（避免在 UTC 下跨日）
+  const _now = new Date();
+  const _cst = new Date(_now.getTime() + (8 * 60 + _now.getTimezoneOffset()) * 60000);
+  const _ty = _cst.getFullYear(), _tm = _cst.getMonth(), _td = _cst.getDate();
   function toSec(t) {
     const [h, m] = t.split(':').map(Number);
-    return Math.floor(new Date(today.getFullYear(), today.getMonth(), today.getDate(), h, m).getTime() / 1000);
+    return Math.floor(Date.UTC(_ty, _tm, _td, h, m) / 1000);
   }
 
   // ── chart（主价格面板 + 成交量面板）──────────────────────────────────────
