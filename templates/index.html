@@ -498,8 +498,10 @@
 <div class="modal-overlay" id="modalOverlay" onclick="closeModal(event)">
   <div class="modal-box" onclick="event.stopPropagation()">
     <div class="modal-header">
-      <h2 id="modalTitle">股票走势分析</h2>
-      <button id="modalWlBtn" class="btn-wl" style="font-size:1rem;padding:0 8px" onclick="wlToggleModal()">+</button>
+      <div style="display:flex;align-items:center;gap:6px">
+        <h2 id="modalTitle">股票走势分析</h2>
+        <button id="modalWlBtn" class="btn-wl" style="font-size:1rem;padding:0 6px" onclick="wlToggleModal()">+</button>
+      </div>
       <button class="modal-close" onclick="closeModal()">✕</button>
     </div>
     <div class="modal-body">
