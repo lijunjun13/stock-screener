@@ -739,7 +739,7 @@ def _fetch_pe_history(
 def _compute_pe_payload(tc_code: str, code: str) -> dict | None:
     """Fetch PE history + decompose price return into EPS-growth vs PE-expansion."""
     cache_key = f"pe_{code}"
-    cached = _get(cache_key, ttl=3600)
+    cached = _get(cache_key, ttl=86400)
     if cached:
         return cached
 
@@ -781,7 +781,7 @@ def _compute_pe_payload(tc_code: str, code: str) -> dict | None:
     }
 
     # ── Decompose: log(hfq_return) = log(EPS+dividend growth) + log(PE change) ──
-    main = _get(f"hist_{code}", ttl=3600)
+    main = _get(f"hist_{code}", ttl=86400)
     if main and main.get("success"):
         price_dates = main["dates"]
         prices_hfq  = main["prices"]
@@ -845,7 +845,7 @@ def _compute_pe_payload(tc_code: str, code: str) -> dict | None:
 def _compute_regression_payload(tc_code: str, code: str) -> dict | None:
     """Fetch kline + compute both regressions. Returns and caches the full payload."""
     cache_key = f"hist_{code}"
-    cached = _get(cache_key, ttl=3600)
+    cached = _get(cache_key, ttl=86400)
     if cached and cached.get("success"):
         return cached
 
@@ -1151,7 +1151,7 @@ def _fetch_recent_highs(tc_code: str) -> tuple[float, float, float, float]:
     """
     # ── slow-changing kline data: cached 2 h ─────────────────────────────────
     cache_key = f"rec_highs_v4_{tc_code}"
-    cached = _get(cache_key, ttl=7200)
+    cached = _get(cache_key, ttl=43200)
     if cached is not None:
         max_c50, last_hfq, atr = cached
     else:
@@ -1279,7 +1279,7 @@ def _fetch_weekly_closes_long(tc_code: str, n: int = 130) -> list[float]:
     22-week cache is not invalidated.  Cached for 2 h.
     """
     cache_key = f"weekly_long_v1_{tc_code}"
-    cached = _get(cache_key, ttl=7200)
+    cached = _get(cache_key, ttl=43200)
     if cached is not None:
         return cached
     result: list[float] = []
@@ -1311,7 +1311,7 @@ def _fetch_weekly_closes(tc_code: str, n: int = 12) -> list[float]:
     Uses Tencent's fqkline 'week' endpoint.  Cached for 2 h.
     """
     cache_key = f"weekly_v2_{tc_code}"
-    cached = _get(cache_key, ttl=7200)
+    cached = _get(cache_key, ttl=43200)
     if cached is not None:
         return cached
     result: list[float] = []
@@ -2077,7 +2077,7 @@ def get_portfolio():
 
     series: dict[str, tuple[list[str], list[float]]] = {}
     for code in codes:
-        cached = _get(f"hist_{code}", ttl=3600)
+        cached = _get(f"hist_{code}", ttl=86400)
         if cached and cached.get("success"):
             series[code] = (cached["dates"], cached["prices"])
             continue
@@ -2165,7 +2165,7 @@ def get_portfolio():
     component_stats = []
     for code in valid_codes:
         entry = {"code": code, "name": name_map.get(code, code)}
-        cached = _get(f"hist_{code}", ttl=3600)
+        cached = _get(f"hist_{code}", ttl=86400)
         if cached and cached.get("success"):
             entry.update({
                 "r2_10": round(cached["stats_10y"]["r_squared"] * 100, 1),
@@ -2234,11 +2234,11 @@ def analyze_stock(code: str):
 
     api_key = os.environ.get("MODELHUB_API_KEY", "0wEyJRUC23zEedqDxEAtc81kZmoS5W9p")
 
-    hist_data = _get(f"hist_{code}", ttl=3600)
+    hist_data = _get(f"hist_{code}", ttl=86400)
     if not hist_data:
         return jsonify({"error": "请先在图表页加载该股票数据"}), 400
 
-    pe_data = _get(f"pe_{code}", ttl=3600)
+    pe_data = _get(f"pe_{code}", ttl=86400)
 
     # Resolve stock name
     cl   = _get("stock_list", ttl=86400)
@@ -2306,7 +2306,7 @@ def analyze_stock(code: str):
 输出格式：使用 Markdown（**加粗**、空行分段），不要输出任何 HTML 标签。"""
 
     cache_key = f"analysis_v3_{code}"   # v3 = no HTML, markdown only
-    cached    = _get(cache_key, ttl=7200)
+    cached    = _get(cache_key, ttl=43200)
 
     @stream_with_context
     def generate():
@@ -2423,7 +2423,7 @@ def analyze_chart(code: str):
                 break
 
     # Get actual chart date range from cached hist data
-    hist_data = _get(f"hist_{code}", ttl=3600)
+    hist_data = _get(f"hist_{code}", ttl=86400)
     chart_start, chart_end = "", ""
     if hist_data:
         dates = hist_data.get("dates", [])
@@ -2436,7 +2436,7 @@ def analyze_chart(code: str):
     )
 
     cache_key = f"phase_v5_{code}"       # v5 = full-range coverage required
-    cached = _get(cache_key, ttl=7200)
+    cached = _get(cache_key, ttl=43200)
 
     prompt = (
         f"你是A股资深分析师。图中是{name}（{code}）的后复权股价走势图及PE(TTM)历史曲线。"
