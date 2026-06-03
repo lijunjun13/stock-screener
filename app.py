@@ -2048,8 +2048,7 @@ def get_stock_kline(code: str):
 
     # 盘中补今日实时 K 线（后复权接口盘中不返回当天未完成 K 线）
     today_str = today.strftime("%Y-%m-%d")
-    is_weekday = today.weekday() < 5
-    if daily and is_weekday and daily[-1]["date"] != today_str:
+    if daily and daily[-1]["date"] != today_str:
         try:
             r = _sess.get(f"https://qt.gtimg.cn/q={tc}", timeout=5)
             r.raise_for_status()
@@ -2064,7 +2063,9 @@ def get_stock_kline(code: str):
                     h = float(f[33] or 0)
                     l = float(f[34] or 0)
                     v = float(f[6] or 0)
-                    if c > 0 and o > 0:
+                    prev_vol = daily[-1]["volume"]
+                    # 成交量与上一交易日相同 → 接口返回的是缓存旧数据（未开盘/休市）
+                    if c > 0 and o > 0 and v != prev_vol:
                         daily.append({
                             "date": today_str, "open": o, "close": c,
                             "high": h, "low": l, "volume": v, "intraday": True,
