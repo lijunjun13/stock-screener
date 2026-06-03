@@ -1305,7 +1305,8 @@ async function _loadShortTerm(code) {
 function closeModal(ev) {
   if (!ev || ev.target === document.getElementById('modalOverlay')) {
     document.getElementById('modalOverlay').classList.remove('open');
-    if (_lwcLTChart) { try { _lwcLTChart.remove(); } catch(_) {} _lwcLTChart = null; }
+    if (_lwcLTChart)   { try { _lwcLTChart.remove();   } catch(_) {} _lwcLTChart   = null; }
+    if (_lwcLTPEChart) { try { _lwcLTPEChart.remove();  } catch(_) {} _lwcLTPEChart = null; }
     ['stIntradayDiv','stDailyDiv','stWeeklyDiv'].forEach(id => {
       const st = _lwcState.get(id);
       if (st?.chart) try { st.chart.remove(); } catch(_) {}
@@ -1315,7 +1316,8 @@ function closeModal(ev) {
 }
 
 // ── chart ────────────────────────────────────────────────────────────────────
-let _lwcLTChart = null; // 长期趋势图 LWC 实例
+let _lwcLTChart   = null; // 长期趋势图 价格面板 LWC 实例
+let _lwcLTPEChart = null; // 长期趋势图 PE 子图 LWC 实例
 
 function drawChart(d, name, code) {
   const hasPE = !!(d.pe_dates && d.pe_vals && d.pe_vals.length > 20);
@@ -1325,41 +1327,66 @@ function drawChart(d, name, code) {
   const sel5  = _selectedYears.has('5y');
   const sel3  = _selectedYears.has('3y') && has3y;
 
-  // ── lightweight-charts 长期趋势图 ─────────────────────────────────────────
+  // ── 销毁旧实例 ─────────────────────────────────────────────────────────────
   const divEl = document.getElementById('chartDiv');
-
-  // 销毁旧实例
-  if (_lwcLTChart) { try { _lwcLTChart.remove(); } catch(_) {} _lwcLTChart = null; }
+  if (_lwcLTChart)   { try { _lwcLTChart.remove();   } catch(_) {} _lwcLTChart   = null; }
+  if (_lwcLTPEChart) { try { _lwcLTPEChart.remove();  } catch(_) {} _lwcLTPEChart = null; }
   divEl.innerHTML = '';
 
-  const LS = LightweightCharts.LineStyle;
+  const LS     = LightweightCharts.LineStyle;
+  const totalH = divEl.clientHeight || 510;
+  const totalW = divEl.clientWidth  || 800;
+  const priceH = hasPE ? Math.round(totalH * 0.65) : totalH;
+  const peH    = hasPE ? totalH - priceH - 1 : 0;
 
-  const chart = LightweightCharts.createChart(divEl, {
-    width:  divEl.clientWidth  || 800,
-    height: divEl.clientHeight || 510,
+  // ── 价格面板容器 ───────────────────────────────────────────────────────────
+  const priceDivEl = document.createElement('div');
+  priceDivEl.style.cssText = `width:100%;height:${priceH}px`;
+  divEl.appendChild(priceDivEl);
+
+  let peDivEl = null;
+  if (hasPE) {
+    const sepEl = document.createElement('div');
+    sepEl.style.cssText = 'width:100%;height:1px;background:rgba(255,255,255,.15)';
+    divEl.appendChild(sepEl);
+    peDivEl = document.createElement('div');
+    peDivEl.style.cssText = `width:100%;height:${peH}px`;
+    divEl.appendChild(peDivEl);
+  }
+
+  // ── 共享图表选项 ───────────────────────────────────────────────────────────
+  const commonOpts = {
     layout: { background: { color: '#161b22' }, textColor: '#c9d1d9' },
     grid:   { vertLines: { color: '#21262d' }, horzLines: { color: '#21262d' } },
     crosshair: { mode: LightweightCharts.CrosshairMode.Normal,
       vertLine: { labelBackgroundColor: '#21262d' },
       horzLine: { labelBackgroundColor: '#21262d' } },
-    rightPriceScale: { borderColor: '#30363d',
-      mode: LightweightCharts.PriceScaleMode.Logarithmic },
-    timeScale: { borderColor: '#30363d' },
+    timeScale:    { borderColor: '#30363d' },
     handleScroll: true, handleScale: true,
+  };
+
+  // ── 创建价格图（对数坐标）─────────────────────────────────────────────────
+  const priceChart = LightweightCharts.createChart(priceDivEl, {
+    ...commonOpts,
+    width: totalW, height: priceH,
+    rightPriceScale: { borderColor: '#30363d', mode: LightweightCharts.PriceScaleMode.Logarithmic },
   });
-  _lwcLTChart = chart;
+  _lwcLTChart = priceChart;
 
-  // 有 PE 时限制价格面板到上方 65%，留出下方给 PE 子图
-  if (hasPE) {
-    chart.priceScale('right').applyOptions({ scaleMargins: { top: 0.02, bottom: 0.33 } });
-  }
-
-  const ro = new ResizeObserver(() => chart.applyOptions({ width: divEl.clientWidth, height: divEl.clientHeight }));
+  // ResizeObserver 同时调整两个 chart 的尺寸
+  const ro = new ResizeObserver(() => {
+    const w  = divEl.clientWidth;
+    const h  = divEl.clientHeight;
+    const pH = hasPE ? Math.round(h * 0.65) : h;
+    const eH = hasPE ? h - pH - 1 : 0;
+    priceChart.applyOptions({ width: w, height: pH });
+    if (_lwcLTPEChart) _lwcLTPEChart.applyOptions({ width: w, height: eH });
+  });
   ro.observe(divEl);
 
   // 工具函数
   function _mkLine(color, width, style, opts = {}) {
-    return chart.addLineSeries({ color, lineWidth: width, lineStyle: style ?? LS.Solid,
+    return priceChart.addLineSeries({ color, lineWidth: width, lineStyle: style ?? LS.Solid,
       priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, ...opts });
   }
   function _setD(series, dates, vals) {
@@ -1368,7 +1395,7 @@ function drawChart(d, name, code) {
   }
 
   // ── 价格线 ──────────────────────────────────────────────────────────────
-  const priceSeries = chart.addLineSeries({ color: '#58a6ff', lineWidth: 1.5,
+  const priceSeries = priceChart.addLineSeries({ color: '#58a6ff', lineWidth: 1.5,
     priceLineVisible: true, lastValueVisible: true, crosshairMarkerVisible: false,
     title: '后复权价' });
   _setD(priceSeries, d.dates, d.prices);
@@ -1386,48 +1413,56 @@ function drawChart(d, name, code) {
   const p90_5 = _mkLine('rgba(63,185,80,.55)',  1.5, LS.LargeDashed, { visible: !!(sel5 && d.upper_band) });
   const p10_3 = _mkLine('rgba(227,179,65,.45)', 1.2, LS.LargeDashed, { visible: !!(sel3 && d.lower_band_3y) });
   const p90_3 = _mkLine('rgba(227,179,65,.45)', 1.2, LS.LargeDashed, { visible: !!(sel3 && d.upper_band_3y) });
-  if (sel5 && d.lower_band)   _setD(p10_5, d.dates, d.lower_band);
-  if (sel5 && d.upper_band)   _setD(p90_5, d.dates, d.upper_band);
+  if (sel5 && d.lower_band)    _setD(p10_5, d.dates, d.lower_band);
+  if (sel5 && d.upper_band)    _setD(p90_5, d.dates, d.upper_band);
   if (sel3 && d.lower_band_3y) _setD(p10_3, d.dates, d.lower_band_3y);
   if (sel3 && d.upper_band_3y) _setD(p90_3, d.dates, d.upper_band_3y);
 
-  // ── PE 子面板（独立 Y 轴，下方 28%）────────────────────────────────────────
+  // ── PE 子图（独立 chart 实例 + 独立 Y 轴 + timeScale 同步）────────────────
   if (hasPE) {
     const PE_CLIP = 120;
     const ps = d.pe_stats;
 
-    // 分割线：视觉上区隔两个子图
-    divEl.style.position = 'relative';
-    const sepEl = document.createElement('div');
-    sepEl.style.cssText = 'position:absolute;left:0;right:0;top:67%;height:1px;background:rgba(255,255,255,.12);pointer-events:none;z-index:5';
-    divEl.appendChild(sepEl);
+    const peChart = LightweightCharts.createChart(peDivEl, {
+      ...commonOpts,
+      width: totalW, height: peH,
+      rightPriceScale: { borderColor: '#30363d' },
+    });
+    _lwcLTPEChart = peChart;
 
-    // PE 标签
-    const peLabelEl = document.createElement('div');
-    peLabelEl.textContent = 'PE';
-    peLabelEl.style.cssText = 'position:absolute;left:8px;top:69%;font-size:.68rem;color:rgba(210,168,255,.6);pointer-events:none;z-index:5';
-    divEl.appendChild(peLabelEl);
-
-    const peSeries = chart.addLineSeries({ priceScaleId: 'pe',
+    const peSeries = peChart.addLineSeries({
       color: 'rgba(210,168,255,.85)', lineWidth: 1.5,
-      priceLineVisible: false, lastValueVisible: true, crosshairMarkerVisible: false });
-    chart.priceScale('pe').applyOptions({
-      scaleMargins: { top: 0.70, bottom: 0.02 },
-      mode: LightweightCharts.PriceScaleMode.Normal,
-      borderColor: '#30363d',
+      priceLineVisible: false, lastValueVisible: true, crosshairMarkerVisible: false,
+      title: 'PE',
     });
     peSeries.setData(d.pe_dates
       .map((dt, i) => d.pe_vals[i] > 0 ? { time: _d2lwc(dt), value: Math.min(d.pe_vals[i], PE_CLIP) } : null)
       .filter(Boolean));
 
-    // PE 中位虚线
     if (ps?.median) {
       peSeries.createPriceLine({ price: ps.median, color: 'rgba(210,168,255,.4)',
         lineWidth: 1, lineStyle: LS.Dotted, axisLabelVisible: true });
     }
+
+    // ── 同步两图的 timeScale（滚动/缩放联动）────────────────────────────────
+    let _syncLock = false;
+    priceChart.timeScale().subscribeVisibleLogicalRangeChange(range => {
+      if (_syncLock || range === null) return;
+      _syncLock = true;
+      peChart.timeScale().setVisibleLogicalRange(range);
+      _syncLock = false;
+    });
+    peChart.timeScale().subscribeVisibleLogicalRangeChange(range => {
+      if (_syncLock || range === null) return;
+      _syncLock = true;
+      priceChart.timeScale().setVisibleLogicalRange(range);
+      _syncLock = false;
+    });
+
+    peChart.timeScale().fitContent();
   }
 
-  chart.timeScale().fitContent();
+  priceChart.timeScale().fitContent();
 }
 
 // ── year window toggle ────────────────────────────────────────────────────────
