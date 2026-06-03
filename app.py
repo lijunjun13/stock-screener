@@ -2368,18 +2368,26 @@ def analyze_stock(code: str):
 
         buf: list[str] = []
         try:
+            groq_key   = os.environ.get("GROQ_API_KEY")
             gemini_key = os.environ.get("GEMINI_API_KEY")
-            if gemini_key:
-                # ── Google Gemini（外网环境，OpenAI 兼容接口）───────────────
-                gemini_model = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
-                client_g = _AzureOpenAI.__class__.__mro__  # 只是为了触发 import
+            if groq_key or gemini_key:
                 from openai import OpenAI as _OpenAI
-                client_g = _OpenAI(
-                    api_key=gemini_key,
-                    base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-                )
-                stream = client_g.chat.completions.create(
-                    model=gemini_model, stream=True, max_tokens=1024,
+                if groq_key:
+                    # ── Groq（免费额度大，OpenAI 兼容接口）──────────────────
+                    _ai_client = _OpenAI(
+                        api_key=groq_key,
+                        base_url="https://api.groq.com/openai/v1",
+                    )
+                    _ai_model = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
+                else:
+                    # ── Google Gemini（外网环境，OpenAI 兼容接口）────────────
+                    _ai_client = _OpenAI(
+                        api_key=gemini_key,
+                        base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+                    )
+                    _ai_model = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
+                stream = _ai_client.chat.completions.create(
+                    model=_ai_model, stream=True, max_tokens=1024,
                     messages=[{"role": "user", "content": prompt}],
                 )
                 fin_reason = None
@@ -2524,17 +2532,26 @@ def analyze_chart(code: str):
 
         buf: list[str] = []
         try:
+            groq_key   = os.environ.get("GROQ_API_KEY")
             gemini_key = os.environ.get("GEMINI_API_KEY")
-            if gemini_key:
-                # ── Google Gemini vision（外网环境，OpenAI 兼容接口）────────
+            if groq_key or gemini_key:
                 from openai import OpenAI as _OpenAI
-                gemini_model = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
-                client_g = _OpenAI(
-                    api_key=gemini_key,
-                    base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-                )
-                stream = client_g.chat.completions.create(
-                    model=gemini_model, stream=True, max_tokens=1024,
+                if groq_key:
+                    # ── Groq vision（llama-3.2-90b-vision-preview）───────────
+                    _ai_client = _OpenAI(
+                        api_key=groq_key,
+                        base_url="https://api.groq.com/openai/v1",
+                    )
+                    _ai_model = os.environ.get("GROQ_VISION_MODEL", "llama-3.2-90b-vision-preview")
+                else:
+                    # ── Google Gemini vision（OpenAI 兼容接口）───────────────
+                    _ai_client = _OpenAI(
+                        api_key=gemini_key,
+                        base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+                    )
+                    _ai_model = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
+                stream = _ai_client.chat.completions.create(
+                    model=_ai_model, stream=True, max_tokens=1024,
                     messages=[{"role": "user", "content": [
                         {"type": "image_url", "image_url": {"url": image_b64}},
                         {"type": "text", "text": prompt},
