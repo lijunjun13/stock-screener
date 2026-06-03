@@ -1043,12 +1043,15 @@ function _drawKline(divId, rows, maWindows, initRange) {
       tickfont: { size: 10 }, rangeslider: { visible: false },
       tickangle: -30, nticks: 8,
     },
-    yaxis: { color: '#8b949e', gridcolor: 'rgba(255,255,255,.06)', tickfont: { size: 10 }, autorange: true },
+    yaxis: { color: '#8b949e', gridcolor: 'rgba(255,255,255,.06)', tickfont: { size: 10 } },
     legend: { font: { size: 10, color: '#8b949e' }, orientation: 'h', y: 1.04, x: 0 },
     font: { family: 'inherit' },
   };
+  // 初始只渲染末尾 MAX_BARS 根，避免卡顿
+  const _initR0 = initRange ? initRange[0] : Math.max(-0.5, n - 150);
+  const _initR1 = initRange ? initRange[1] : n - 0.5;
+  layout.xaxis.range = [_initR0, _initR1];
   Plotly.newPlot(divId, traces, layout, { responsive: true, displayModeBar: false });
-  if (initRange) Plotly.relayout(divEl, {'xaxis.range': initRange});
 
   // ── SVG 十字线 ──────────────────────────────────────────────────────────
   const svgNS = 'http://www.w3.org/2000/svg';
@@ -1127,7 +1130,20 @@ function _drawKline(divId, rows, maWindows, initRange) {
     _renderKBar();
   });
 
+  // ── Y 轴按可见 K 线自动适配 ──────────────────────────────────────────────
+  function _fitYAxis(r0, r1) {
+    const i0 = Math.max(0, Math.floor(r0));
+    const i1 = Math.min(n - 1, Math.ceil(r1));
+    const vl = lows.slice(i0, i1 + 1).filter(v => v > 0);
+    const vh = highs.slice(i0, i1 + 1).filter(v => v > 0);
+    if (!vl.length) return {};
+    const yMin = Math.min(...vl), yMax = Math.max(...vh);
+    const pad  = (yMax - yMin) * 0.06 || yMin * 0.01;
+    return { 'yaxis.range': [yMin - pad, yMax + pad] };
+  }
+
   // ── 触控板缩放 / 平移 ────────────────────────────────────────────────────
+  const MAX_BARS = 500;
   let _klineRaf = null;
   divEl.addEventListener('wheel', e => {
     e.preventDefault();
@@ -1145,14 +1161,15 @@ function _drawKline(divId, rows, maWindows, initRange) {
           // 双指上下滑 → 缩放（上划放大，下划缩小）
           const factor = e.deltaY > 0 ? 1.12 : (1 / 1.12);
           const mid = (r0 + r1) / 2;
-          const ns  = Math.max(5, Math.min(n - 1, span * factor));
+          const ns  = Math.max(5, Math.min(MAX_BARS, span * factor));
           r0 = mid - ns / 2;
           r1 = mid + ns / 2;
         }
-        // 限制在数据范围内
+        // 限制在数据范围内，且不超过 MAX_BARS
+        if (r1 - r0 > MAX_BARS) { const m=(r0+r1)/2; r0=m-MAX_BARS/2; r1=m+MAX_BARS/2; }
         if (r0 < -0.5) { r1 -= r0 + 0.5; r0 = -0.5; }
         if (r1 > n - 0.5) { r0 -= r1 - (n - 0.5); r1 = n - 0.5; }
-        Plotly.relayout(divEl, { 'xaxis.range': [r0, r1] });
+        Plotly.relayout(divEl, { 'xaxis.range': [r0, r1], ..._fitYAxis(r0, r1) });
         // 触边时加载更多历史数据
         if (r0 < 10) _loadMoreKline(divId);
       } catch (_) {}
