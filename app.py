@@ -2012,12 +2012,27 @@ def watchlist_remove(tc_code: str):
 
 @app.route("/api/stock/kline/<code>")
 def get_stock_kline(code: str):
-    """Return hfq OHLC for daily (6 months) and weekly (2 years)."""
+    """Return hfq OHLC for daily (6 months) and weekly (2 years).
+    Optional ?before=YYYY-MM-DD to load earlier historical data (load-more)."""
     tc = _resolve_tc(code)
     today = datetime.now()
-    end   = today.strftime("%Y-%m-%d")
 
-    def _fetch(freq, start, count, key):
+    # before 参数：往前加载更多历史
+    before_str = request.args.get("before", "")
+    if before_str:
+        try:
+            end_dt = datetime.strptime(before_str, "%Y-%m-%d") - timedelta(days=1)
+        except ValueError:
+            end_dt = today
+        end = end_dt.strftime("%Y-%m-%d")
+        start_d = (end_dt - timedelta(days=300)).strftime("%Y-%m-%d")
+        start_w = (end_dt - timedelta(days=900)).strftime("%Y-%m-%d")
+    else:
+        end     = today.strftime("%Y-%m-%d")
+        start_d = (today - timedelta(days=200)).strftime("%Y-%m-%d")
+        start_w = (today - timedelta(days=730)).strftime("%Y-%m-%d")
+
+    def _fetch(freq, start, count):
         url = (
             "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get"
             f"?param={tc},{freq},{start},{end},{count},hfq"
@@ -2041,14 +2056,12 @@ def get_stock_kline(code: str):
         except Exception:
             return []
 
-    start_d = (today - timedelta(days=200)).strftime("%Y-%m-%d")
-    start_w = (today - timedelta(days=730)).strftime("%Y-%m-%d")
-    daily   = _fetch("day",  start_d, 150, "hfqday")
-    weekly  = _fetch("week", start_w, 104, "hfqweek")
+    daily  = _fetch("day",  start_d, 200)
+    weekly = _fetch("week", start_w, 130)
 
-    # 盘中补今日实时 K 线（后复权接口盘中不返回当天未完成 K 线）
+    # 盘中补今日实时 K 线（仅非 before 模式）
     today_str = today.strftime("%Y-%m-%d")
-    if daily and daily[-1]["date"] != today_str:
+    if not before_str and daily and daily[-1]["date"] != today_str:
         try:
             r = _sess.get(f"https://qt.gtimg.cn/q={tc}", timeout=5)
             r.raise_for_status()

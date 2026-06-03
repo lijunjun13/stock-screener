@@ -1000,8 +1000,11 @@ function _computeMA(closes, n) {
   );
 }
 
-function _drawKline(divId, rows, maWindows) {
+const _klineState = new Map(); // divId → {rows, loading, maWindows}
+
+function _drawKline(divId, rows, maWindows, initRange) {
   if (!rows || !rows.length) { _stError(divId, '暂无K线数据'); return; }
+  _klineState.set(divId, {rows, loading: false, maWindows: maWindows || [5,10,20]});
 
   // 清除旧内容
   const divEl = document.getElementById(divId);
@@ -1045,6 +1048,7 @@ function _drawKline(divId, rows, maWindows) {
     font: { family: 'inherit' },
   };
   Plotly.newPlot(divId, traces, layout, { responsive: true, displayModeBar: false });
+  if (initRange) Plotly.relayout(divEl, {'xaxis.range': initRange});
 
   // ── SVG 十字线 ──────────────────────────────────────────────────────────
   const svgNS = 'http://www.w3.org/2000/svg';
@@ -1149,9 +1153,36 @@ function _drawKline(divId, rows, maWindows) {
         if (r0 < -0.5) { r1 -= r0 + 0.5; r0 = -0.5; }
         if (r1 > n - 0.5) { r0 -= r1 - (n - 0.5); r1 = n - 0.5; }
         Plotly.relayout(divEl, { 'xaxis.range': [r0, r1] });
+        // 触边时加载更多历史数据
+        if (r0 < 10) _loadMoreKline(divId);
       } catch (_) {}
     });
   }, { passive: false });
+}
+
+async function _loadMoreKline(divId) {
+  const st = _klineState.get(divId);
+  if (!st || st.loading || !_currentCode) return;
+  st.loading = true;
+
+  const firstDate = st.rows[0].date;
+  try {
+    const resp = await fetch(`/api/stock/kline/${_currentCode}?before=${firstDate}`);
+    const d = await resp.json();
+    if (!d.success || !d.daily || !d.daily.length) { st.loading = false; return; }
+
+    const newRows = d.daily.filter(r => r.date < firstDate);
+    if (!newRows.length) { st.loading = false; return; }
+
+    const el = document.getElementById(divId);
+    const [r0, r1] = el._fullLayout.xaxis.range.map(Number);
+    const added = newRows.length;
+    const allRows = [...newRows, ...st.rows];
+
+    _drawKline(divId, allRows, st.maWindows, [r0 + added, r1 + added]);
+  } catch (_) {}
+  const s2 = _klineState.get(divId);
+  if (s2) s2.loading = false;
 }
 
 function _drawIntraday(divId, data) {
