@@ -1112,14 +1112,13 @@ function _drawKline(divId, rows, maWindows, initRange) {
   }
   _renderKBar();
 
-  // 记录当前悬浮的 K 线索引（用于以十字线为中心缩放）
-  let _hoverIdx = null;
+  // 记录鼠标在图表区域的相对 X（用于以鼠标位置为中心缩放）
+  let _mouseRelX = null;
 
   // 竖线吸附数据 X
   divEl.on('plotly_hover', ev => {
     const pt = (ev.points || []).find(p => p.pointIndex !== undefined);
     if (!pt) return;
-    _hoverIdx = pt.pointIndex;
     _renderKBar(pt.pointIndex);
     try {
       const xa = divEl._fullLayout.xaxis;
@@ -1132,9 +1131,10 @@ function _drawKline(divId, rows, maWindows, initRange) {
     } catch(e) {}
   });
 
-  // 横线跟鼠标 Y
+  // 横线跟鼠标 Y，同时记录鼠标 X 供缩放使用
   divEl.addEventListener('mousemove', e => {
     const rect = divEl.getBoundingClientRect();
+    _mouseRelX = e.clientX - rect.left;
     const y = e.clientY - rect.top;
     lineH.setAttribute('x1', 0);          lineH.setAttribute('x2', rect.width);
     lineH.setAttribute('y1', y);          lineH.setAttribute('y2', y);
@@ -1144,7 +1144,7 @@ function _drawKline(divId, rows, maWindows, initRange) {
   divEl.addEventListener('mouseleave', () => {
     lineV.style.display = 'none';
     lineH.style.display = 'none';
-    _hoverIdx = null;
+    _mouseRelX = null;
     _renderKBar();
   });
 
@@ -1185,10 +1185,16 @@ function _drawKline(divId, rows, maWindows, initRange) {
       [_r0, _r1] = _clamp(_r0 + shift, _r1 + shift);
     } else {
       const factor = e.deltaY > 0 ? 1.12 : (1 / 1.12);
-      const ns     = Math.max(5, Math.min(MAX_BARS, span * factor));
-      // 以十字线所在 K 线为中心；无悬浮时用视图中心
-      const anchor = (_hoverIdx !== null) ? _hoverIdx : (_r0 + _r1) / 2;
-      const ratio  = (anchor - _r0) / span;   // anchor 在当前视图的比例位置
+      const ns = Math.max(5, Math.min(MAX_BARS, span * factor));
+      // 用鼠标像素位置实时换算 anchor（不依赖 plotly_hover 事件，避免滞后）
+      let anchor = (_r0 + _r1) / 2;
+      if (_mouseRelX !== null) {
+        const rect   = divEl.getBoundingClientRect();
+        const plotW  = rect.width - 42 - 8; // margin l=42 r=8
+        const frac   = Math.max(0, Math.min(1, (_mouseRelX - 42) / plotW));
+        anchor = _r0 + frac * span;
+      }
+      const ratio = (anchor - _r0) / span;
       _r0 = anchor - ratio * ns;
       _r1 = _r0 + ns;
       [_r0, _r1] = _clamp(_r0, _r1);
