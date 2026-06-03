@@ -899,8 +899,7 @@ function renderTable() {
     return `<tr onclick="openModal('${s['代码']}','${s['名称']}')">
       <td class="rank">${i+1}</td>
       <td class="code">${s['代码']}</td>
-      <td>${s['名称']}<button class="${wlCls}" title="${wlTip}"
-          onclick="event.stopPropagation();wlToggle('${s['代码']}','${s['名称'].replace(/'/g,"\\'")}')">${wlChr}</button></td>
+      <td>${s['名称']}<button class="${wlCls}" title="${wlTip}" onclick="event.stopPropagation();wlToggle('${s['代码']}','${s['名称'].replace(/'/g,"&#39;")}')">${wlChr}</button></td>
       <td><span class="mktcap">${s['市值亿'].toFixed(0)}</span></td>
       <td>${s['最新价']}</td>
       <td class="${cls}">${sign}${chg.toFixed(2)}%</td>
@@ -3505,7 +3504,12 @@ async function wlConfirmAdd() {
 async function wlRemove(tcCode) {
   const r = await fetch(`/api/watchlist/remove/${encodeURIComponent(tcCode)}`, {method: 'DELETE'});
   const d = await r.json();
-  if (d.success) { _wlStocks = _wlStocks.filter(s => s.tc_code !== tcCode); wlRender(); renderTable(); }
+  if (d.success) {
+    _wlStocks = _wlStocks.filter(s => s.tc_code !== tcCode);
+    wlRender();
+    renderTable();
+    if (typeof renderTrendResults === 'function' && trendAllResults.length) renderTrendResults();
+  }
 }
 
 async function wlToggle(code, name) {
@@ -3953,9 +3957,7 @@ function renderTrendResults() {
       : '';
 
     const inWlT  = _wlStocks.some(w => w.code === s.代码);
-    const wlBtnT = `<button class="${inWlT ? 'btn-wl in-wl' : 'btn-wl'}"
-      onclick="event.stopPropagation();wlToggle('${s.代码}','${s.名称.replace(/'/g,"\\'")}')"
-      title="${inWlT ? '移出自选' : '加入自选'}">${inWlT ? '−' : '+'}</button>`;
+    const wlBtnT = `<button class="${inWlT ? 'btn-wl in-wl' : 'btn-wl'}" onclick="event.stopPropagation();wlToggle('${s.代码}','${s.名称.replace(/'/g,"&#39;")}')" title="${inWlT ? '移出自选' : '加入自选'}">${inWlT ? '−' : '+'}</button>`;
 
     // Type badges
     const typeBadge = s.is_etf
