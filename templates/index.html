@@ -1446,21 +1446,28 @@ function drawChart(d, name, code) {
         lineWidth: 1, lineStyle: LS.Dotted, axisLabelVisible: true });
     }
 
-    // ── 同步两图的 timeScale（用时间范围同步，而非逻辑索引）────────────────────
-    // 逻辑索引在两图间条数不同（price 10年 vs PE 可能只有 5-6 年），
-    // 用同一 logical range 同步会让 PE 图把 priceChart 的视窗压短。
-    // 改用 subscribeVisibleTimeRangeChange + setVisibleRange 按日期对齐。
+    // ── 锚系列：把 price 全部日期注入 PE 图，使两图 timeScale 完全对齐 ──────────
+    // 两图数据长度不同（price 10年 vs PE 6-8年），若直接用逻辑索引同步
+    // 会因条数差异导致日期错位。注入锚系列后两图逻辑索引↔日期映射一致。
+    const _anchorSeries = peChart.addLineSeries({
+      color: 'transparent', lineWidth: 0,
+      priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+      autoscaleInfoProvider: () => null,
+    });
+    _anchorSeries.setData(d.dates.map(dt => ({ time: _d2lwc(dt), value: 0 })));
+
+    // ── 同步两图的 timeScale（逻辑索引，两图现在 timeScale 完全一致）────────────
     let _syncLock = false;
-    priceChart.timeScale().subscribeVisibleTimeRangeChange(range => {
+    priceChart.timeScale().subscribeVisibleLogicalRangeChange(range => {
       if (_syncLock || range === null) return;
       _syncLock = true;
-      peChart.timeScale().setVisibleRange(range);
+      peChart.timeScale().setVisibleLogicalRange(range);
       _syncLock = false;
     });
-    peChart.timeScale().subscribeVisibleTimeRangeChange(range => {
+    peChart.timeScale().subscribeVisibleLogicalRangeChange(range => {
       if (_syncLock || range === null) return;
       _syncLock = true;
-      priceChart.timeScale().setVisibleRange(range);
+      priceChart.timeScale().setVisibleLogicalRange(range);
       _syncLock = false;
     });
   }
