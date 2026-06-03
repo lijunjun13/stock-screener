@@ -1305,7 +1305,7 @@ async function _loadShortTerm(code) {
 function closeModal(ev) {
   if (!ev || ev.target === document.getElementById('modalOverlay')) {
     document.getElementById('modalOverlay').classList.remove('open');
-    Plotly.purge('chartDiv');
+    if (_lwcLTChart) { try { _lwcLTChart.remove(); } catch(_) {} _lwcLTChart = null; }
     ['stIntradayDiv','stDailyDiv','stWeeklyDiv'].forEach(id => {
       const st = _lwcState.get(id);
       if (st?.chart) try { st.chart.remove(); } catch(_) {}
@@ -1315,240 +1315,102 @@ function closeModal(ev) {
 }
 
 // ── chart ────────────────────────────────────────────────────────────────────
+let _lwcLTChart = null; // 长期趋势图 LWC 实例
+
 function drawChart(d, name, code) {
   const hasPE = !!(d.pe_dates && d.pe_vals && d.pe_vals.length > 20);
   const has3y = !!(d.reg_3y  && d.reg_3y.length > 0);
-
-  const priceDomain = hasPE ? [0.36, 1.0] : [0, 1.0];
-  const peDomain    = [0, 0.29];
 
   const sel10 = _selectedYears.has('10y');
   const sel5  = _selectedYears.has('5y');
   const sel3  = _selectedYears.has('3y') && has3y;
 
-  // ── traces ────────────────────────────────────────────────────────────────
-  const traces = [];
+  // ── lightweight-charts 长期趋势图 ─────────────────────────────────────────
+  const divEl = document.getElementById('chartDiv');
 
-  // 5-year P10/P90 bands (drawn first so price line renders on top)
-  if (sel5 && d.lower_band) {
-    traces.push({
-      x: d.dates, y: d.lower_band, type: 'scatter', mode: 'lines',
-      name: '止损参考-5年（P10）',
-      line: { color: 'rgba(248,81,73,0.55)', width: 1.5, dash: 'longdash' },
-      hovertemplate: '%{y:.2f}<extra>止损线(5年)</extra>'
-    });
-    traces.push({
-      x: d.dates, y: d.upper_band, type: 'scatter', mode: 'lines',
-      name: '止盈参考-5年（P90）',
-      fill: 'tonexty', fillcolor: 'rgba(88,166,255,0.05)',
-      line: { color: 'rgba(63,185,80,0.55)', width: 1.5, dash: 'longdash' },
-      hovertemplate: '%{y:.2f}<extra>止盈线(5年)</extra>'
-    });
-  }
+  // 销毁旧实例
+  if (_lwcLTChart) { try { _lwcLTChart.remove(); } catch(_) {} _lwcLTChart = null; }
+  divEl.innerHTML = '';
 
-  // 3-year P10/P90 bands
-  if (sel3 && d.lower_band_3y) {
-    traces.push({
-      x: d.dates, y: d.lower_band_3y, type: 'scatter', mode: 'lines',
-      name: '止损参考-3年（P10）',
-      line: { color: 'rgba(227,179,65,0.45)', width: 1.2, dash: 'longdash' },
-      hovertemplate: '%{y:.2f}<extra>止损线(3年)</extra>'
-    });
-    traces.push({
-      x: d.dates, y: d.upper_band_3y, type: 'scatter', mode: 'lines',
-      name: '止盈参考-3年（P90）',
-      fill: 'tonexty', fillcolor: 'rgba(227,179,65,0.04)',
-      line: { color: 'rgba(227,179,65,0.45)', width: 1.2, dash: 'longdash' },
-      hovertemplate: '%{y:.2f}<extra>止盈线(3年)</extra>'
-    });
-  }
+  const LS = LightweightCharts.LineStyle;
 
-  // Price line (always shown)
-  traces.push({
-    x: d.dates, y: d.prices, type: 'scatter', mode: 'lines',
-    name: '后复权收盘价',
-    line: { color: '#58a6ff', width: 1.5 },
-    hovertemplate: '%{y:.2f}<extra>收盘价</extra>'
+  const chart = LightweightCharts.createChart(divEl, {
+    width:  divEl.clientWidth  || 800,
+    height: divEl.clientHeight || 510,
+    layout: { background: { color: '#161b22' }, textColor: '#c9d1d9' },
+    grid:   { vertLines: { color: '#21262d' }, horzLines: { color: '#21262d' } },
+    crosshair: { mode: LightweightCharts.CrosshairMode.Normal,
+      vertLine: { labelBackgroundColor: '#21262d' },
+      horzLine: { labelBackgroundColor: '#21262d' } },
+    rightPriceScale: { borderColor: '#30363d',
+      mode: LightweightCharts.PriceScaleMode.Logarithmic },
+    timeScale: { borderColor: '#30363d' },
+    handleScroll: true, handleScale: true,
   });
+  _lwcLTChart = chart;
 
-  // Regression lines — only for selected windows
-  if (sel10) {
-    traces.push({
-      x: d.dates, y: d.reg_10y, type: 'scatter', mode: 'lines',
-      name: '10年回归趋势',
-      line: { color: '#f78166', width: 2, dash: 'dot' },
-      hovertemplate: '%{y:.2f}<extra>10年趋势</extra>'
-    });
+  const ro = new ResizeObserver(() => chart.applyOptions({ width: divEl.clientWidth, height: divEl.clientHeight }));
+  ro.observe(divEl);
+
+  // 工具函数
+  function _mkLine(color, width, style, opts = {}) {
+    return chart.addLineSeries({ color, lineWidth: width, lineStyle: style ?? LS.Solid,
+      priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, ...opts });
   }
-  if (sel5) {
-    traces.push({
-      x: d.dates, y: d.reg_5y, type: 'scatter', mode: 'lines',
-      name: '5年回归趋势',
-      line: { color: '#3fb950', width: 2, dash: 'dash' },
-      hovertemplate: '%{y:.2f}<extra>5年趋势</extra>'
-    });
-  }
-  if (sel3) {
-    traces.push({
-      x: d.dates, y: d.reg_3y, type: 'scatter', mode: 'lines',
-      name: '3年回归趋势',
-      line: { color: '#e3b341', width: 2, dash: 'dashdot' },
-      hovertemplate: '%{y:.2f}<extra>3年趋势</extra>'
-    });
+  function _setD(series, dates, vals) {
+    if (!dates || !vals) return;
+    series.setData(dates.map((dt, i) => vals[i] > 0 ? { time: _d2lwc(dt), value: vals[i] } : null).filter(Boolean));
   }
 
-  // ── PE sub-chart traces ───────────────────────────────────────────────────
-  let peOverRanges = [];
+  // ── 价格线 ──────────────────────────────────────────────────────────────
+  const priceSeries = chart.addLineSeries({ color: '#58a6ff', lineWidth: 1.5,
+    priceLineVisible: true, lastValueVisible: true, crosshairMarkerVisible: false,
+    title: '后复权价' });
+  _setD(priceSeries, d.dates, d.prices);
+
+  // ── 回归线 ──────────────────────────────────────────────────────────────
+  const reg10 = _mkLine('#f78166', 2, LS.Dotted,    { visible: sel10, title: '10年趋势' });
+  const reg5  = _mkLine('#3fb950', 2, LS.Dashed,    { visible: sel5,  title: '5年趋势'  });
+  const reg3  = _mkLine('#e3b341', 2, LS.DashAndDot,{ visible: sel3,  title: '3年趋势'  });
+  if (sel10) _setD(reg10, d.dates, d.reg_10y);
+  if (sel5)  _setD(reg5,  d.dates, d.reg_5y);
+  if (sel3)  _setD(reg3,  d.dates, d.reg_3y);
+
+  // ── P10/P90 边界线 ──────────────────────────────────────────────────────
+  const p10_5 = _mkLine('rgba(248,81,73,.55)',  1.5, LS.LargeDashed, { visible: !!(sel5 && d.lower_band) });
+  const p90_5 = _mkLine('rgba(63,185,80,.55)',  1.5, LS.LargeDashed, { visible: !!(sel5 && d.upper_band) });
+  const p10_3 = _mkLine('rgba(227,179,65,.45)', 1.2, LS.LargeDashed, { visible: !!(sel3 && d.lower_band_3y) });
+  const p90_3 = _mkLine('rgba(227,179,65,.45)', 1.2, LS.LargeDashed, { visible: !!(sel3 && d.upper_band_3y) });
+  if (sel5 && d.lower_band)   _setD(p10_5, d.dates, d.lower_band);
+  if (sel5 && d.upper_band)   _setD(p90_5, d.dates, d.upper_band);
+  if (sel3 && d.lower_band_3y) _setD(p10_3, d.dates, d.lower_band_3y);
+  if (sel3 && d.upper_band_3y) _setD(p90_3, d.dates, d.upper_band_3y);
+
+  // ── PE 子面板 ────────────────────────────────────────────────────────────
   if (hasPE) {
-    const ps = d.pe_stats;
     const PE_CLIP = 80;
-    const peDisplay = d.pe_vals.map(v => Math.min(v, PE_CLIP));
-    let overStart = null;
-    for (let i = 0; i < d.pe_vals.length; i++) {
-      if (d.pe_vals[i] > PE_CLIP) {
-        if (overStart === null) overStart = d.pe_dates[i];
-      } else {
-        if (overStart !== null) { peOverRanges.push([overStart, d.pe_dates[i - 1]]); overStart = null; }
-      }
+    const ps = d.pe_stats;
+
+    const peSeries = chart.addLineSeries({ priceScaleId: 'pe',
+      color: 'rgba(210,168,255,.85)', lineWidth: 1.5,
+      priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
+    chart.priceScale('pe').applyOptions({
+      scaleMargins: { top: 0.72, bottom: 0 },
+      mode: LightweightCharts.PriceScaleMode.Logarithmic,
+      borderColor: '#30363d',
+    });
+    peSeries.setData(d.pe_dates
+      .map((dt, i) => d.pe_vals[i] > 0 ? { time: _d2lwc(dt), value: Math.min(d.pe_vals[i], PE_CLIP) } : null)
+      .filter(Boolean));
+
+    // PE 中位虚线
+    if (ps?.median) {
+      peSeries.createPriceLine({ price: ps.median, color: 'rgba(210,168,255,.4)',
+        lineWidth: 1, lineStyle: LS.Dotted, axisLabelVisible: false });
     }
-    if (overStart !== null) peOverRanges.push([overStart, d.pe_dates[d.pe_dates.length - 1]]);
-    traces.push({
-      x: d.pe_dates, y: d.pe_vals.map(() => ps.p25),
-      type: 'scatter', mode: 'lines', yaxis: 'y2',
-      line: { width: 0 }, showlegend: false, hoverinfo: 'skip', name: '_pe_p25_base'
-    });
-    traces.push({
-      x: d.pe_dates, y: d.pe_vals.map(() => ps.p75),
-      type: 'scatter', mode: 'lines', yaxis: 'y2',
-      fill: 'tonexty', fillcolor: 'rgba(210,168,255,0.08)',
-      line: { width: 0 }, showlegend: false, hoverinfo: 'skip', name: '_pe_iqr'
-    });
-    traces.push({
-      x: d.pe_dates, y: peDisplay,
-      type: 'scatter', mode: 'lines', yaxis: 'y2',
-      name: 'PE（TTM）',
-      line: { color: 'rgba(210,168,255,0.85)', width: 1.5 },
-      hovertemplate: 'PE: %{y:.1f}x<extra>PE TTM</extra>'
-    });
-    traces.push({
-      x: [d.pe_dates[0], d.pe_dates[d.pe_dates.length - 1]],
-      y: [ps.median, ps.median],
-      type: 'scatter', mode: 'lines', yaxis: 'y2',
-      name: `PE中位 ${ps.median}x`,
-      line: { color: 'rgba(210,168,255,0.4)', width: 1, dash: 'dot' },
-      hoverinfo: 'skip', showlegend: false
-    });
   }
 
-  // ── shapes ────────────────────────────────────────────────────────────────
-  const shapes = [];
-
-  // Vertical split lines
-  if (sel5 && d.split_5y_date) {
-    shapes.push({
-      type: 'line', x0: d.split_5y_date, x1: d.split_5y_date,
-      yref: 'paper', y0: 0, y1: 1,
-      line: { color: 'rgba(63,185,80,0.35)', width: 1.5, dash: 'dot' }
-    });
-  }
-  if (sel3 && d.split_3y_date) {
-    shapes.push({
-      type: 'line', x0: d.split_3y_date, x1: d.split_3y_date,
-      yref: 'paper', y0: 0, y1: 1,
-      line: { color: 'rgba(227,179,65,0.35)', width: 1.5, dash: 'dot' }
-    });
-  }
-
-  // PE loss-period shading
-  if (hasPE && d.loss_ranges && d.loss_ranges.length > 0) {
-    d.loss_ranges.forEach(([s, e]) => {
-      shapes.push({
-        type: 'rect', xref: 'x', x0: s, x1: e,
-        yref: 'paper', y0: 0, y1: 0.30,
-        fillcolor: 'rgba(248,81,73,0.18)', line: { width: 0 }, layer: 'below'
-      });
-    });
-  }
-  // PE>80 overflow shading
-  if (hasPE && peOverRanges.length > 0) {
-    peOverRanges.forEach(([s, e]) => {
-      shapes.push({
-        type: 'rect', xref: 'x', x0: s, x1: e,
-        yref: 'paper', y0: 0, y1: 0.30,
-        fillcolor: 'rgba(210,168,255,0.18)', line: { width: 0 }, layer: 'below'
-      });
-    });
-  }
-
-  // ── annotations ───────────────────────────────────────────────────────────
-  const annotations = [];
-  if (sel5 && d.split_5y_date) {
-    annotations.push({
-      x: d.split_5y_date, yref: 'paper',
-      y: hasPE ? 0.99 : 0.98,
-      xanchor: 'left', yanchor: 'top',
-      text: '← 10年    5年 →', showarrow: false,
-      font: { size: 10, color: 'rgba(63,185,80,0.7)' }
-    });
-  }
-  if (sel3 && d.split_3y_date) {
-    annotations.push({
-      x: d.split_3y_date, yref: 'paper',
-      y: hasPE ? 0.92 : 0.91,
-      xanchor: 'left', yanchor: 'top',
-      text: '← 5年    3年 →', showarrow: false,
-      font: { size: 10, color: 'rgba(227,179,65,0.7)' }
-    });
-  }
-  if (hasPE) {
-    annotations.push({
-      x: d.pe_dates[0], xanchor: 'left',
-      yref: 'paper', y: 0.27, yanchor: 'top',
-      text: 'PE（TTM）', showarrow: false,
-      font: { size: 9, color: 'rgba(210,168,255,0.6)' }
-    });
-  }
-
-  // ── layout ────────────────────────────────────────────────────────────────
-  const layout = {
-    paper_bgcolor: '#161b22',
-    plot_bgcolor:  '#0d1117',
-    font: { color: '#c9d1d9', size: 12 },
-    xaxis: {
-      gridcolor: '#21262d', linecolor: '#30363d',
-      tickformat: '%Y-%m', tickfont: { size: 11 },
-      title: hasPE ? '' : '日期',
-    },
-    yaxis: {
-      title: '后复权收盘价（对数坐标）', type: 'log',
-      domain: priceDomain,
-      gridcolor: '#21262d', linecolor: '#30363d',
-      tickformat: '.2f', tickfont: { size: 11 }
-    },
-    legend: {
-      bgcolor: '#0d1117', bordercolor: '#30363d', borderwidth: 1,
-      x: 0.01, y: 0.99, font: { size: 10 }
-    },
-    shapes, annotations,
-    margin: { t: 20, b: hasPE ? 45 : 55, l: 70, r: 20 },
-    hovermode: 'x unified'
-  };
-
-  if (hasPE) {
-    layout.yaxis2 = {
-      domain: peDomain, anchor: 'x', type: 'log',
-      gridcolor: '#21262d', linecolor: '#30363d',
-      tickfont: { size: 10 }, tickformat: '.1f',
-      title: { text: 'PE(log)', font: { size: 10 } }
-    };
-    shapes.push({
-      type: 'line', xref: 'paper', x0: 0, x1: 1,
-      yref: 'paper', y0: 0.31, y1: 0.31,
-      line: { color: 'rgba(48,54,61,0.8)', width: 1 }
-    });
-  }
-
-  Plotly.react('chartDiv', traces, layout, { responsive: true, displayModeBar: false });
+  chart.timeScale().fitContent();
 }
 
 // ── year window toggle ────────────────────────────────────────────────────────
