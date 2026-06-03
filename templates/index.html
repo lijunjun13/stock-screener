@@ -4174,16 +4174,16 @@ function pollTrendProgress() {
 
       trendAllResults = d.results || [];
       renderTrendResults();
+      // 每次 poll 都持久化，确保重启后能恢复
+      try {
+        localStorage.setItem('trend_results_v2', JSON.stringify({ts: Date.now(), data: trendAllResults}));
+      } catch(e) {}
 
       if (d.done || (!d.running && d.idx > 0)) {
         document.getElementById('trendProgress').style.display = 'none';
         const btn = document.getElementById('btnTrendScan');
         btn.disabled = false;
         btn.textContent = '↻ 重新扫描';
-        // 扫描完成后持久化到 localStorage
-        try {
-          localStorage.setItem('trend_results_v2', JSON.stringify({ts: Date.now(), data: trendAllResults}));
-        } catch(e) {}
       } else if (d.running) {
         trendPollTimer = setTimeout(pollTrendProgress, 1500);
       }
