@@ -2045,6 +2045,34 @@ def get_stock_kline(code: str):
     start_w = (today - timedelta(days=730)).strftime("%Y-%m-%d")
     daily   = _fetch("day",  start_d, 150, "hfqday")
     weekly  = _fetch("week", start_w, 104, "hfqweek")
+
+    # 盘中补今日实时 K 线（后复权接口盘中不返回当天未完成 K 线）
+    today_str = today.strftime("%Y-%m-%d")
+    is_weekday = today.weekday() < 5
+    if daily and is_weekday and daily[-1]["date"] != today_str:
+        try:
+            r = _sess.get(f"https://qt.gtimg.cn/q={tc}", timeout=5)
+            r.raise_for_status()
+            for line in r.text.strip().split(";\n"):
+                if '="' not in line:
+                    continue
+                inner = line.split('="', 1)[1].rstrip('";')
+                f = inner.split("~")
+                if len(f) >= 35:
+                    o = float(f[5] or 0)
+                    c = float(f[3] or 0)
+                    h = float(f[33] or 0)
+                    l = float(f[34] or 0)
+                    v = float(f[6] or 0)
+                    if c > 0 and o > 0:
+                        daily.append({
+                            "date": today_str, "open": o, "close": c,
+                            "high": h, "low": l, "volume": v, "intraday": True,
+                        })
+                break
+        except Exception:
+            pass
+
     return jsonify({"success": True, "daily": daily, "weekly": weekly})
 
 
