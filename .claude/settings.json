@@ -1,4 +1,13 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c ' *)",
+      "Bash(sed -i '' 's/_get\\(f\"hist_{code}\", ttl=3600\\)/_get\\(f\"hist_{code}\", ttl=86400\\)/g' /Users/bytedance/repos/stock-screener/app.py)",
+      "Bash(sed -i '' 's/_get\\(f\"pe_{code}\", ttl=3600\\)/_get\\(f\"pe_{code}\", ttl=86400\\)/g' /Users/bytedance/repos/stock-screener/app.py)",
+      "WebSearch",
+      "Bash(git commit *)"
+    ]
+  },
   "hooks": {
     "Stop": [
       {
