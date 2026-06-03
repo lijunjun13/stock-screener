@@ -373,6 +373,7 @@
     border-color: rgba(88,166,255,.45);
   }
   .yr-chip:hover:not(.active) { background: rgba(255,255,255,.05); }
+  .yr-dot { display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:5px; vertical-align:middle; opacity:.85; }
 
   /* Mobile trend cards — hidden on desktop, shown via media query below */
   .trend-mobile-cards { display: none; }
@@ -542,9 +543,9 @@
         <div class="chart-area">
           <div class="yr-chips" id="yrChips">
             <span style="font-size:.73rem;color:var(--muted);margin-right:2px">回归窗口：</span>
-            <button class="yr-chip active" data-yr="10y" onclick="toggleYr(this,'10y')">10年</button>
-            <button class="yr-chip active" data-yr="5y"  onclick="toggleYr(this,'5y')">5年</button>
-            <button class="yr-chip"        data-yr="3y"  onclick="toggleYr(this,'3y')">3年</button>
+            <button class="yr-chip active" data-yr="10y" onclick="toggleYr(this,'10y')"><span class="yr-dot" style="background:#f78166"></span>10年</button>
+            <button class="yr-chip active" data-yr="5y"  onclick="toggleYr(this,'5y')"><span class="yr-dot" style="background:#3fb950"></span>5年</button>
+            <button class="yr-chip"        data-yr="3y"  onclick="toggleYr(this,'3y')"><span class="yr-dot" style="background:#e3b341"></span>3年</button>
             <button id="btnPhaseAnalyze"
                     onclick="runPhaseAnalysis(_currentCode)"
                     style="margin-left:auto;background:linear-gradient(135deg,#1a7f3c,#2ea043);
@@ -1398,14 +1399,15 @@ function drawChart(d, name, code) {
 
   // ── 价格线 ──────────────────────────────────────────────────────────────
   const priceSeries = priceChart.addLineSeries({ color: '#58a6ff', lineWidth: 1.5,
-    priceLineVisible: true, lastValueVisible: true, crosshairMarkerVisible: false,
-    title: '后复权价' });
+    priceLineVisible: true, priceLineWidth: 1, priceLineStyle: LS.Dashed,
+    priceLineColor: 'rgba(88,166,255,.35)',
+    lastValueVisible: true, crosshairMarkerVisible: false });
   _setD(priceSeries, d.dates, d.prices);
 
   // ── 回归线 ──────────────────────────────────────────────────────────────
-  const reg10 = _mkLine('#f78166', 2, LS.Dotted,    { visible: sel10, title: '10年趋势' });
-  const reg5  = _mkLine('#3fb950', 2, LS.Dashed,    { visible: sel5,  title: '5年趋势'  });
-  const reg3  = _mkLine('#e3b341', 2, LS.DashAndDot,{ visible: sel3,  title: '3年趋势'  });
+  const reg10 = _mkLine('#f78166', 2, LS.Dotted,    { visible: sel10 });
+  const reg5  = _mkLine('#3fb950', 2, LS.Dashed,    { visible: sel5  });
+  const reg3  = _mkLine('#e3b341', 2, LS.DashAndDot,{ visible: sel3  });
   if (sel10) _setD(reg10, d.dates, d.reg_10y);
   if (sel5)  _setD(reg5,  d.dates, d.reg_5y);
   if (sel3)  _setD(reg3,  d.dates, d.reg_3y);
