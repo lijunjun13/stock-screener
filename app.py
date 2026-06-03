@@ -850,7 +850,7 @@ def _compute_pe_payload(tc_code: str, code: str) -> dict | None:
     }
 
     # ── Decompose: log(hfq_return) = log(EPS+dividend growth) + log(PE change) ──
-    main = _get(f"hist_v3_{code}", ttl=86400)
+    main = _get(f"hist_v4_{code}", ttl=86400)
     if main and main.get("success"):
         price_dates = main["dates"]
         prices_hfq  = main["prices"]
@@ -913,7 +913,7 @@ def _compute_pe_payload(tc_code: str, code: str) -> dict | None:
 
 def _compute_regression_payload(tc_code: str, code: str) -> dict | None:
     """Fetch kline + compute both regressions. Returns and caches the full payload."""
-    cache_key = f"hist_v3_{code}"
+    cache_key = f"hist_v4_{code}"
     cached = _get(cache_key, ttl=86400)
     if cached and cached.get("success"):
         return cached
@@ -985,13 +985,23 @@ def _compute_regression_payload(tc_code: str, code: str) -> dict | None:
 
     cur_price = float(arr[-1])
 
-    # ── ATR：最近50日平均绝对日收益率（%）──────────────────────────────────────
-    rets_50 = [abs(closes[i] / closes[i-1] - 1) * 100
-               for i in range(max(1, len(closes) - 50), len(closes))]
-    atr_pct   = round(sum(rets_50) / len(rets_50), 2) if rets_50 else 0.0
-    max_c50   = float(max(closes[-50:]) if len(closes) >= 50 else max(closes))
-    sl_3atr   = round(max_c50 * (1 - 3 * atr_pct / 100), 4)
-    sl_4atr   = round(max_c50 * (1 - 4 * atr_pct / 100), 4)
+    # ── 滚动50日 ATR 止损带：每根K线往前50天取最高收盘价 + 平均绝对日收益率 ──────
+    arr_c        = np.array(closes, dtype=float)
+    n_c          = len(arr_c)
+    sl_3atr_arr: list = [None] * n_c
+    sl_4atr_arr: list = [None] * n_c
+    for i in range(1, n_c):
+        s_i    = max(0, i - 49)
+        win    = arr_c[s_i : i + 1]
+        max_c  = float(win.max())
+        atr_w  = float(np.abs(win[1:] / win[:-1] - 1).mean()) * 100 if len(win) > 1 else 0.0
+        sl_3atr_arr[i] = round(max_c * (1 - 3 * atr_w / 100), 4)
+        sl_4atr_arr[i] = round(max_c * (1 - 4 * atr_w / 100), 4)
+    # 末端标量（供 statsPanel 展示）
+    atr_pct = round(float(np.abs(arr_c[-50:][1:] / arr_c[-50:][:-1] - 1).mean()) * 100, 2) \
+              if n_c >= 2 else 0.0
+    sl_3atr = sl_3atr_arr[-1] or 0.0
+    sl_4atr = sl_4atr_arr[-1] or 0.0
 
     lower_band,    upper_band,    band_stats_5 = _band_stats(
         s5, b5, x_5y,  ly_5y,  x_all, arr[split_idx:],    cur_price)
@@ -1003,6 +1013,8 @@ def _compute_regression_payload(tc_code: str, code: str) -> dict | None:
         "atr_pct":        atr_pct,
         "sl_3atr":        sl_3atr,
         "sl_4atr":        sl_4atr,
+        "sl_3atr_arr":    sl_3atr_arr,
+        "sl_4atr_arr":    sl_4atr_arr,
         "dates":          dates,
         "prices":         [round(v, 4) for v in closes],
         "reg_10y":        [round(v, 4) for v in reg_10y],
@@ -2358,7 +2370,7 @@ def get_portfolio():
 
     series: dict[str, tuple[list[str], list[float]]] = {}
     for code in codes:
-        cached = _get(f"hist_v3_{code}", ttl=86400)
+        cached = _get(f"hist_v4_{code}", ttl=86400)
         if cached and cached.get("success"):
             series[code] = (cached["dates"], cached["prices"])
             continue
@@ -2446,7 +2458,7 @@ def get_portfolio():
     component_stats = []
     for code in valid_codes:
         entry = {"code": code, "name": name_map.get(code, code)}
-        cached = _get(f"hist_v3_{code}", ttl=86400)
+        cached = _get(f"hist_v4_{code}", ttl=86400)
         if cached and cached.get("success"):
             entry.update({
                 "r2_10": round(cached["stats_10y"]["r_squared"] * 100, 1),
@@ -2515,7 +2527,7 @@ def analyze_stock(code: str):
 
     api_key = os.environ.get("MODELHUB_API_KEY", "0wEyJRUC23zEedqDxEAtc81kZmoS5W9p")
 
-    hist_data = _get(f"hist_v3_{code}", ttl=86400)
+    hist_data = _get(f"hist_v4_{code}", ttl=86400)
     if not hist_data:
         return jsonify({"error": "请先在图表页加载该股票数据"}), 400
 
@@ -2690,7 +2702,7 @@ def analyze_chart(code: str):
                 break
 
     # Get actual chart date range from cached hist data
-    hist_data = _get(f"hist_v3_{code}", ttl=86400)
+    hist_data = _get(f"hist_v4_{code}", ttl=86400)
     chart_start, chart_end = "", ""
     if hist_data:
         dates = hist_data.get("dates", [])
