@@ -28,6 +28,7 @@ import requests
 from flask import Flask, Response, jsonify, render_template, request, stream_with_context
 
 app = Flask(__name__)
+app.config['TEMPLATES_AUTO_RELOAD'] = True   # 模板修改后无需重启服务器
 
 # ── HTTP session ──────────────────────────────────────────────────────────────
 _sess = requests.Session()
