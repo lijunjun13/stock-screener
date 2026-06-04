@@ -1404,8 +1404,8 @@ def _fetch_us_stocks() -> list[dict]:
 
 
 def _us_hfq_k(raw_hist) -> float:
-    """Compute 后复权 scale factor K from a yfinance auto_adjust=False history DataFrame.
-    K = cumulative_split_ratio × (raw_close[0] / adj_close[0])
+    """Compute 后复权 K from a 10-year auto_adjust=False history DataFrame.
+    K = cumulative_10yr_split_ratio × (raw_close[0] / adj_close[0])
     后复权_price(t) = adj_close(t) × K
     """
     try:
@@ -1420,6 +1420,26 @@ def _us_hfq_k(raw_hist) -> float:
         return 1.0
 
 
+def _us_hfq_k_cached(ticker: str) -> float:
+    """Return 后复权 K for a US ticker, always derived from a 10-year window.
+    Cached 7 days — splits/dividends are infrequent.
+    Both _fetch_us_kline_em and _yf_ohlcv use this so short chart windows
+    (6 m daily, 2 yr weekly) don't miss splits that happened before the window.
+    """
+    ck = f"us_hfq_k_{ticker}"
+    v  = _get(ck, ttl=86400 * 7)
+    if v is not None:
+        return float(v)
+    try:
+        import yfinance as yf
+        raw = yf.Ticker(ticker).history(period="10y", auto_adjust=False, actions=True)
+        K   = _us_hfq_k(raw) if not raw.empty else 1.0
+    except Exception:
+        K = 1.0
+    _set(ck, K)
+    return K
+
+
 def _fetch_us_kline_em(ticker: str, years: int = 10) -> tuple[list[str], list[float]]:
     """Fetch 后复权 daily kline for a US stock via yfinance."""
     cache_key = f"us_kline_v3_{ticker}"
@@ -1432,7 +1452,9 @@ def _fetch_us_kline_em(ticker: str, years: int = 10) -> tuple[list[str], list[fl
         raw = yf.Ticker(ticker).history(period=period, auto_adjust=False, actions=True)
         if raw.empty:
             return [], []
-        K      = _us_hfq_k(raw)
+        K = _us_hfq_k(raw)
+        # Backfill the shared K cache so _yf_ohlcv doesn't need a second 10yr fetch
+        _set(f"us_hfq_k_{ticker}", K)
         dates  = [str(d)[:10] for d in raw.index]
         closes = [round(float(c) * K, 4) for c in raw["Adj Close"]]
         if dates:
@@ -2336,7 +2358,9 @@ def _yf_ohlcv(ticker: str, start: str, end: str, interval: str) -> list[dict]:
                                         interval=interval, auto_adjust=False, actions=True)
         if raw.empty:
             return []
-        K = _us_hfq_k(raw)
+        # Use 10yr-based K so out-of-window splits (e.g. GOOGL 20:1 in 2022)
+        # are captured even when the chart window is only 6 months or 2 years.
+        K = _us_hfq_k_cached(ticker)
         rows = []
         for ts, row in raw.iterrows():
             c   = float(row["Close"])
