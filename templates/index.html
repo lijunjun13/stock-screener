@@ -4429,7 +4429,7 @@ function renderTrendResults() {
   } else if (sk === 'mkt') {
     rows.sort((a,b) => sd==='asc' ? a.市值亿 - b.市值亿 : b.市值亿 - a.市值亿);
   } else if (sk === 'gain') {
-    const gainOf = s => s.trend_closes?.length ? (s.trend_closes[s.trend_closes.length-1] - 1) * 100 : -Infinity;
+    const gainOf = s => s.ret10w ?? -Infinity;
     rows.sort((a,b) => sd==='asc' ? gainOf(a) - gainOf(b) : gainOf(b) - gainOf(a));
   } else if (sk === 'ret20') {
     rows.sort((a,b) => {
@@ -4676,8 +4676,8 @@ function renderTrendResults() {
       <td style="color:${scColor};font-weight:600" class="trend-score">${sc.toFixed(2)}</td>
       <td style="color:${peColor}">${peStr}</td>
       ${(() => {
-        if (!s.trend_closes || !s.trend_closes.length) return '<td style="color:var(--muted)">—</td>';
-        const g = (s.trend_closes[s.trend_closes.length - 1] - 1) * 100;
+        if (s.ret10w == null) return '<td style="color:var(--muted)">—</td>';
+        const g = s.ret10w;
         const gc = g >= 0 ? '#3fb950' : '#f85149';
         return `<td style="color:${gc};font-weight:600">${g >= 0 ? '+' : ''}${g.toFixed(1)}%</td>`;
       })()}
@@ -4870,8 +4870,8 @@ function _renderMobileTrendCards(rows) {
     const p10C = s.pct10w  != null ? (s.pct10w >= 80 ? '#f85149' : s.pct10w >= 60 ? '#e3b341' : s.pct10w >= 40 ? '#3fb950' : '#c9d1d9') : 'var(--muted)';
     const p20  = s.pct20w  != null ? `${s.pct20w.toFixed(0)}%`  : '…';
     const p20C = s.pct20w  != null ? (s.pct20w >= 80 ? '#f85149' : s.pct20w >= 60 ? '#e3b341' : s.pct20w >= 40 ? '#3fb950' : '#c9d1d9') : 'var(--muted)';
-    const ret10 = s.trend_closes?.length ? `${((s.trend_closes[s.trend_closes.length-1]-1)*100).toFixed(1)}%` : '—';
-    const ret10C = s.trend_closes?.length ? ((s.trend_closes[s.trend_closes.length-1]-1)*100 >= 0 ? '#f85149' : '#3fb950') : 'var(--muted)';
+    const ret10 = s.ret10w != null ? `${s.ret10w >= 0 ? '+' : ''}${s.ret10w.toFixed(1)}%` : '—';
+    const ret10C = s.ret10w != null ? (s.ret10w >= 0 ? '#f85149' : '#3fb950') : 'var(--muted)';
     const ret20 = s.ret20w != null ? `${s.ret20w >= 0 ? '+' : ''}${s.ret20w.toFixed(1)}%` : '—';
     const ret20C = s.ret20w != null ? (s.ret20w >= 0 ? '#f85149' : '#3fb950') : 'var(--muted)';
 

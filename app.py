@@ -1793,6 +1793,12 @@ def _run_trend_scan(stock_list: list[dict]) -> None:
             else:
                 max_h50, max_h50b, last_cls, atr_50d, chg_live = _fetch_recent_highs(tc)
 
+            ret10w = None
+            if len(closes_all) >= 10:
+                c0, c1 = closes_all[-10], closes_all[-1]
+                if c0 > 0:
+                    ret10w = round((c1 / c0 - 1) * 100, 1)
+
             ret20w = None
             if len(closes_all) >= 20:
                 c0, c1 = closes_all[-20], closes_all[-1]
@@ -1819,6 +1825,7 @@ def _run_trend_scan(stock_list: list[dict]) -> None:
                 "max_high_50d_b": max_h50b,
                 "last_close":    last_cls,
                 "atr_50d":       atr_50d,
+                "ret10w":        ret10w,
                 "ret20w":        ret20w,
                 "涨跌幅":        chg_today,
             }
