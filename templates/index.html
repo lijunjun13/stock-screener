@@ -2504,9 +2504,33 @@ function parsePhaseText(text) {
   // Strip markdown code fences the AI sometimes adds despite instructions
   const stripped = text.replace(/```(?:json)?\s*/gi, '').replace(/```/g, '').trim();
 
+  function _mapPhases(arr) {
+    return arr.map((item, idx) => {
+      // Accept alternative field names the AI might use
+      const startDate = item.start || item.startDate || item.start_date || item.from || item.begin || null;
+      const endDate   = item.end   || item.endDate   || item.end_date   || item.to   || null;
+      const numRaw    = item.num   || item.id        || item.phase      || (idx + 1);
+      return {
+        num:       Number(numRaw) || (idx + 1),
+        timeRange: `${startDate || '?'} 至 ${endDate || '?'}`,
+        title:     String(item.title || item.name || item.label || ''),
+        startDate,
+        endDate,
+        bullets: [
+          { label: '起因', text: String(item.reason  || item.cause   || '') },
+          { label: '经过', text: String(item.process || item.detail  || '') },
+          { label: '终结', text: String(item.ending  || item.outcome || '') },
+        ].filter(b => b.text),
+      };
+    }).filter(p => p.startDate);
+  }
+
+  // Try to find a JSON array anywhere in the text (even inside an outer object)
   const arrayStart = stripped.indexOf('[');
   if (arrayStart >= 0) {
     let raw = stripped.slice(arrayStart).replace(/,\s*([}\]])/g, '$1');
+    // Strip any trailing outer-object closers that come after the array
+    raw = raw.replace(/\]\s*\}.*$/, ']');
 
     // The AI may return truncated JSON if it hit the token limit.
     // Try progressively more complete suffixes until one parses.
@@ -2516,21 +2540,25 @@ function parsePhaseText(text) {
       try {
         const arr = JSON.parse(raw + suffix);
         if (Array.isArray(arr) && arr.length > 0) {
-          return arr.map(item => ({
-            num:       Number(item.num) || 0,
-            timeRange: `${item.start || '?'} 至 ${item.end || '?'}`,
-            title:     String(item.title   || ''),
-            startDate: item.start || null,
-            endDate:   item.end   || null,
-            bullets: [
-              { label: '起因', text: String(item.reason  || '') },
-              { label: '经过', text: String(item.process || '') },
-              { label: '终结', text: String(item.ending  || '') },
-            ].filter(b => b.text),
-          })).filter(p => p.num > 0 && p.startDate);
+          const phases = _mapPhases(arr);
+          if (phases.length > 0) return phases;
         }
       } catch (_) {}
     }
+  }
+
+  // Also try parsing the whole stripped text as a JSON object wrapping an array
+  const objStart = stripped.indexOf('{');
+  if (objStart >= 0) {
+    try {
+      const obj = JSON.parse(stripped.slice(objStart));
+      const arr = obj.phases || obj.data || obj.result || obj.list
+               || Object.values(obj).find(v => Array.isArray(v));
+      if (Array.isArray(arr) && arr.length > 0) {
+        const phases = _mapPhases(arr);
+        if (phases.length > 0) return phases;
+      }
+    } catch (_) {}
   }
 
   // ── 2. Markdown regex path (fallback) ────────────────────────────────────
@@ -2779,7 +2807,16 @@ function applyPhaseAnnotations(text) {
   const content = document.getElementById('phaseAnalysisContent');
 
   if (phases.length === 0) {
-    if (content) { content.style.display = 'block'; content.innerHTML = `<span style="color:var(--red)">⚠ 无法解析阶段</span>`; }
+    console.warn('[phaseAnalysis] parse failed. raw text:', text);
+    if (content) {
+      content.style.display = 'block';
+      const preview = text ? text.slice(0, 200).replace(/</g, '&lt;') : '(空)';
+      content.innerHTML = `<span style="color:var(--red)">⚠ 无法解析阶段</span>`
+        + `<details style="margin-top:4px;font-size:.75rem;color:var(--muted)">`
+        + `<summary style="cursor:pointer">查看原始返回</summary>`
+        + `<pre style="white-space:pre-wrap;word-break:break-all;margin-top:4px">${preview}…</pre>`
+        + `</details>`;
+    }
     return;
   }
 
