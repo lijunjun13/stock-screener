@@ -1817,34 +1817,37 @@ def get_hk_stocks():
 
 @app.route("/api/us_stocks")
 def get_us_stocks():
-    """返回市值 ≥ 300亿美元的美股列表，附 Eastmoney 实时行情。"""
+    """返回市值 ≥ 300亿美元的美股列表，附 Yahoo Finance 实时行情。"""
     stocks = _fetch_us_stocks()
     if not stocks:
         return jsonify({"success": False, "error": "获取美股数据失败"}), 503
 
-    # Refresh real-time price & chg% from Tencent (supports usXXXX codes)
-    tc_list = [s["_tc"] for s in stocks]
-    quotes: dict = {}
-    for i in range(0, len(tc_list), 200):
-        try:
-            r = _sess.get(f"https://qt.gtimg.cn/q={','.join(tc_list[i:i+200])}", timeout=8)
-            for line in r.text.strip().split(";\n"):
-                if '="' not in line: continue
-                var   = line.split("=")[0].strip()
-                tc    = var[2:] if var.startswith("v_") else var
-                inner = line.split('="', 1)[1].rstrip('";')
-                flds  = inner.split("~")
-                if len(flds) >= 5:
-                    price = float(flds[3] or 0)
-                    prev  = float(flds[4] or 0)
-                    chg   = round((price - prev) / prev * 100, 2) if prev else 0.0
-                    if price > 0:
-                        quotes[tc] = {"最新价": price, "涨跌幅": chg}
-        except Exception:
-            pass
+    # Batch-fetch latest close + prev close via yfinance
+    try:
+        import yfinance as yf
+        import pandas as pd
+        syms = [s["代码"] for s in stocks]
+        df   = yf.download(syms, period="2d", progress=False, auto_adjust=True)
+        close = df["Close"] if not df.empty else pd.DataFrame()
+
+        quotes: dict = {}
+        for sym in syms:
+            try:
+                series = close[sym].dropna() if sym in close.columns else pd.Series(dtype=float)
+                if series.empty:
+                    continue
+                price = round(float(series.iloc[-1]), 2)
+                prev  = round(float(series.iloc[-2]), 2) if len(series) >= 2 else price
+                chg   = round((price - prev) / prev * 100, 2) if prev else 0.0
+                quotes[sym] = {"最新价": price, "涨跌幅": chg}
+            except Exception:
+                pass
+    except Exception as exc:
+        import sys; print(f"[us_realtime] {exc}", file=sys.stderr)
+        quotes = {}
 
     for s in stocks:
-        q = quotes.get(s["_tc"], {})
+        q = quotes.get(s["代码"], {})
         if q.get("最新价"):
             s["最新价"] = q["最新价"]
             s["涨跌幅"] = q["涨跌幅"]
