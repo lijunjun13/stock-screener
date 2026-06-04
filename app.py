@@ -2310,6 +2310,28 @@ def watchlist_remove(tc_code: str):
     return jsonify({"success": True})
 
 
+def _yf_ohlcv(ticker: str, start: str, end: str, interval: str) -> list[dict]:
+    """Fetch OHLCV bars from yfinance and return as list of dicts."""
+    try:
+        import yfinance as yf
+        hist = yf.Ticker(ticker).history(start=start, end=end,
+                                         interval=interval, auto_adjust=True)
+        rows = []
+        for ts, row in hist.iterrows():
+            rows.append({
+                "date":   str(ts)[:10],
+                "open":   round(float(row["Open"]),   4),
+                "close":  round(float(row["Close"]),  4),
+                "high":   round(float(row["High"]),   4),
+                "low":    round(float(row["Low"]),    4),
+                "volume": float(row["Volume"]),
+            })
+        return rows
+    except Exception as exc:
+        import sys; print(f"[yf_ohlcv] {ticker} {interval}: {exc}", file=sys.stderr)
+        return []
+
+
 @app.route("/api/stock/kline/<code>")
 def get_stock_kline(code: str):
     """Return hfq OHLC for daily (6 months) and weekly (2 years).
@@ -2331,6 +2353,13 @@ def get_stock_kline(code: str):
         end     = today.strftime("%Y-%m-%d")
         start_d = (today - timedelta(days=200)).strftime("%Y-%m-%d")
         start_w = (today - timedelta(days=730)).strftime("%Y-%m-%d")
+
+    # ── US stocks: use yfinance ───────────────────────────────────────────────
+    if tc.startswith("us"):
+        end_yf = (datetime.strptime(end, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
+        daily  = _yf_ohlcv(code, start_d, end_yf, "1d")
+        weekly = _yf_ohlcv(code, start_w, end_yf, "1wk")
+        return jsonify({"success": True, "daily": daily, "weekly": weekly})
 
     def _fetch(freq, start, count):
         url = (
@@ -2425,6 +2454,27 @@ def get_stock_kline(code: str):
 def get_stock_intraday(code: str):
     """Return today's minute price series."""
     tc = _resolve_tc(code)
+
+    # ── US stocks: use yfinance 1-minute data ─────────────────────────────────
+    if tc.startswith("us"):
+        try:
+            import yfinance as yf
+            t    = yf.Ticker(code)
+            hist = t.history(period="1d", interval="1m", auto_adjust=True)
+            if hist.empty:
+                return jsonify({"success": False, "error": "No intraday data"})
+            prev_close = float(t.fast_info.previous_close or 0)
+            times, prices, volumes = [], [], []
+            for ts, row in hist.iterrows():
+                # ts is timezone-aware; format as HH:MM in local exchange time
+                times.append(ts.strftime("%H:%M"))
+                prices.append(round(float(row["Close"]), 4))
+                volumes.append(int(row["Volume"]))
+            return jsonify({"success": True, "times": times, "prices": prices,
+                            "volumes": volumes, "prev_close": prev_close})
+        except Exception as e:
+            return jsonify({"success": False, "error": str(e)})
+
     try:
         url  = f"https://web.ifzq.gtimg.cn/appstock/app/minute/query?code={tc}"
         r    = _sess.get(url, timeout=10)
