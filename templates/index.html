@@ -1375,7 +1375,27 @@ function _drawIntraday(divId, data, isHk = false, dailyRows = null, isUs = false
   });
   chart.priceScale('left').applyOptions({ scaleMargins: { top: 0.05, bottom: 0.25 } });
 
-  // Set all series data — NO anchors; extend axis via setVisibleRange after rAF
+  // Session boundary timestamps
+  const _sessionFrom = toSec('09:30');
+  const _sessionEnd  = toSec((isHk || isUs) ? '16:00' : '15:00');
+
+  // ── Invisible anchor series on a hidden price scale ───────────────────────
+  // LWC v4 cannot setVisibleRange beyond the last data bar.
+  // Adding a fully-hidden series with data at session start/end forces the
+  // time axis to include the full session without any visible rendering.
+  const _anchor = chart.addLineSeries({
+    priceScaleId: '_session_anchor',
+    color: 'transparent', lineWidth: 0,
+    priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+    autoscaleInfoProvider: () => null,
+  });
+  chart.priceScale('_session_anchor').applyOptions({ visible: false });
+  _anchor.setData([
+    { time: _sessionFrom, value: 0 },
+    { time: _sessionEnd,  value: 0 },
+  ]);
+  // ─────────────────────────────────────────────────────────────────────────
+
   baseline.setData(prices.map((p, i) => ({ time: toSec(times[i]), value: p })));
   vwapLine.setData(vwap.map((v, i)    => ({ time: toSec(times[i]), value: v })));
 
@@ -1394,14 +1414,8 @@ function _drawIntraday(divId, data, isHk = false, dailyRows = null, isUs = false
     color: prices[i] >= (i === 0 ? ref : prices[i-1]) ? 'rgba(220,60,60,0.75)' : 'rgba(40,170,80,0.75)',
   })));
 
-  // 固定横轴到完整交易时段。
-  // LWC v4 会在 setData 后内部调用 fitContent() 覆盖 setVisibleRange；
-  // 用 requestAnimationFrame 保证在 fitContent 之后执行。
-  const _sessionEnd = toSec((isHk || isUs) ? '16:00' : '15:00');
-  const _sessionFrom = toSec('09:30');
-  const _applyRange = () => chart.timeScale().setVisibleRange({ from: _sessionFrom, to: _sessionEnd });
-  _applyRange();
-  requestAnimationFrame(_applyRange);
+  chart.timeScale().setVisibleRange({ from: _sessionFrom, to: _sessionEnd });
+  requestAnimationFrame(() => chart.timeScale().setVisibleRange({ from: _sessionFrom, to: _sessionEnd }));
 
   _lwcState.set(divId, { chart });
   const ro = new ResizeObserver(() => chart.applyOptions({ width: divEl.clientWidth, height: divEl.clientHeight }));
