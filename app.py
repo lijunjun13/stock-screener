@@ -71,7 +71,8 @@ def _redis_cleanup():
         return
     try:
         deleted = 0
-        for pattern in ("kline_hist_*", "kline_recent_*", "trend_stock_list_v3"):
+        for pattern in ("kline_hist_*", "kline_recent_*", "trend_stock_list_v3",
+                        "us_kline_v2_*", "us_hfq_k_*"):
             cursor = 0
             while True:
                 cursor, keys = _redis.scan(cursor, match=pattern, count=200)
