@@ -1480,7 +1480,7 @@ def _fetch_recent_highs(tc_code: str) -> tuple[float, float, float, float, float
     Returns (0.0, 0.0, 0.0, 0.0) on failure.
     """
     # ── slow-changing kline data: cached 2 h ─────────────────────────────────
-    cache_key = f"rec_highs_v5_{tc_code}"
+    cache_key = f"rec_highs_v6_{tc_code}"
     cached = _get(cache_key, ttl=43200)
     if cached is not None:
         max_c50, last_hfq, atr = cached
