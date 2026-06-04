@@ -2578,15 +2578,26 @@ function _midDate(d1, d2) {
   return new Date((t1 + t2) / 2).toISOString().slice(0, 10);
 }
 
+// ── LWC time helpers ──────────────────────────────────────────────────────────
+// LWC uses { year, month, day } BusinessDay objects, NOT plain strings
+function _str2lwcTime(dateStr) {
+  // dateStr: "YYYY-MM-DD" or "YYYY-MM"
+  const parts = dateStr.split('-').map(Number);
+  return { year: parts[0], month: parts[1], day: parts[2] || 1 };
+}
+function _lwcTime2ym(t) {
+  if (!t) return null;
+  if (typeof t === 'object') return `${t.year}-${String(t.month).padStart(2, '0')}`;
+  if (typeof t === 'string') return t.slice(0, 7);
+  // Unix timestamp fallback
+  return new Date(t * 1000).toISOString().slice(0, 7);
+}
+
 // ── Draw phase bands on LWC (long-term chart) via HTML overlay ───────────────
 function _drawPhaseBandsLWC(phases) {
   if (!_lwcLTChart) return;
   const cd = document.getElementById('chartDiv');
   if (!cd) return;
-
-  // Find the price panel div (first child div of chartDiv)
-  const priceDivEl = cd.querySelector('div');
-  if (!priceDivEl) return;
 
   // Clean up old overlay and subscriptions
   const old = document.getElementById('lwcPhaseOverlay');
@@ -2595,34 +2606,43 @@ function _drawPhaseBandsLWC(phases) {
     old.remove();
   }
 
+  // Attach overlay to chartDiv (not priceDivEl) so LWC's internal DOM doesn't interfere.
+  // Size it to cover only the price panel (top of chartDiv).
+  // cd itself is position:relative so the canvas inside determines layout,
+  // but we force it here just in case.
+  cd.style.position = 'relative';
+
+  // Get the price panel height from the first child div (priceDivEl)
+  const priceDivEl = cd.firstElementChild;
+  const priceH = (priceDivEl ? priceDivEl.clientHeight : 0) || parseInt(cd.style.height) || 510;
+
   const overlay = document.createElement('div');
   overlay.id = 'lwcPhaseOverlay';
-  overlay.style.cssText = 'position:absolute;top:0;left:0;right:0;bottom:0;pointer-events:none;overflow:hidden;';
-  priceDivEl.style.position = 'relative';
-  priceDivEl.appendChild(overlay);
+  overlay.style.cssText = `position:absolute;top:0;left:0;right:0;height:${priceH}px;pointer-events:none;overflow:hidden;z-index:100;`;
+  cd.appendChild(overlay);
 
-  const today = new Date().toISOString().slice(0, 10);
+  const todayStr = new Date().toISOString().slice(0, 10);
 
   function updateBands() {
     overlay.innerHTML = '';
     const ts = _lwcLTChart.timeScale();
-    const W  = priceDivEl.clientWidth;
+    const W  = cd.clientWidth;
 
     phases.forEach((phase, i) => {
       if (!phase.startDate) return;
       const { solid, fill } = PHASE_PALETTE[i % PHASE_PALETTE.length];
 
-      const x0Date = phase.startDate + '-01';
-      const x1Date = phase.endDate ? phase.endDate + '-28' : today;
+      const t0 = _str2lwcTime(phase.startDate + '-01');
+      const t1 = _str2lwcTime(phase.endDate ? phase.endDate + '-28' : todayStr);
 
-      let x0 = ts.timeToCoordinate(x0Date);
-      let x1 = ts.timeToCoordinate(x1Date);
+      const rawX0 = ts.timeToCoordinate(t0);
+      const rawX1 = ts.timeToCoordinate(t1);
 
-      // If both are offscreen, skip
-      if (x0 === null && x1 === null) return;
+      // Both off-screen → skip
+      if (rawX0 === null && rawX1 === null) return;
 
-      const left  = Math.max(x0 ?? 0, 0);
-      const right = Math.min(x1 ?? W, W);
+      const left  = Math.max(rawX0 ?? 0, 0);
+      const right = Math.min(rawX1 ?? W, W);
       if (right <= left) return;
 
       // Background band
@@ -2631,9 +2651,9 @@ function _drawPhaseBandsLWC(phases) {
       overlay.appendChild(band);
 
       // Vertical divider at phase start (skip first)
-      if (i > 0 && x0 !== null && x0 > 0 && x0 < W) {
+      if (i > 0 && rawX0 !== null && rawX0 > 0 && rawX0 < W) {
         const line = document.createElement('div');
-        line.style.cssText = `position:absolute;top:0;bottom:0;left:${Math.round(x0)}px;width:1px;background:${solid};opacity:0.45;`;
+        line.style.cssText = `position:absolute;top:0;bottom:0;left:${Math.round(rawX0)}px;width:1px;background:${solid};opacity:0.5;`;
         overlay.appendChild(line);
       }
 
@@ -2641,10 +2661,10 @@ function _drawPhaseBandsLWC(phases) {
       const midX = (left + right) / 2;
       const lbl = document.createElement('div');
       lbl.style.cssText = `
-        position:absolute;top:4px;left:${midX}px;transform:translateX(-50%);
+        position:absolute;top:6px;left:${midX}px;transform:translateX(-50%);
         color:${solid};font-size:11px;font-weight:700;white-space:nowrap;
-        background:rgba(13,17,23,0.82);padding:2px 6px;
-        border:1px solid ${solid}55;border-radius:3px;`;
+        background:rgba(13,17,23,0.85);padding:2px 6px;
+        border:1px solid ${solid}66;border-radius:3px;`;
       lbl.textContent = `阶段${phase.num}`;
       overlay.appendChild(lbl);
     });
@@ -2804,9 +2824,9 @@ function setupPhaseHover(phases) {
       const rect = cd.getBoundingClientRect();
       const localX = e.clientX - rect.left;
       const ts   = _lwcLTChart.timeScale();
-      const time = ts.coordinateToTime(localX);  // "YYYY-MM-DD" or null
+      const time = ts.coordinateToTime(localX);  // { year, month, day } or null
       if (!time) { scheduleHide(); return; }
-      const ym = String(time).slice(0, 7);
+      const ym = _lwcTime2ym(time);              // "YYYY-MM"
       const phase = phases.find(p =>
         ym >= (p.startDate || '0000-01') && ym <= (p.endDate || '2099-12')
       );
