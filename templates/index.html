@@ -835,7 +835,7 @@
             <th onclick="setTrendSort('mkt')" title="总市值（亿）">市值</th>
             <th onclick="setTrendSort('slope')" id="tth_slope" title="周K线10根对数回归斜率（%/周）；正值=上升趋势">斜率%/周<span class="sort-arrow"></span></th>
             <th onclick="setTrendSort('r2')" id="tth_r2" title="趋势回归残差标准差（%）；越小说明走势越纯粹，与斜率高低无关">σ_res%<span class="sort-arrow"></span></th>
-            <th onclick="setTrendSort('score')" id="tth_score" title="综合得分 = 斜率^1.1 / (1 + σ_res)">得分<span class="sort-arrow"></span></th>
+            <th onclick="setTrendSort('score')" id="tth_score" title="综合得分 = 斜率^1.1 / σ_res（信噪比）">得分<span class="sort-arrow"></span></th>
             <th onclick="setTrendSort('pe')" id="tth_pe" title="动态市盈率（腾讯实时）">PE<span class="sort-arrow"></span></th>
             <th onclick="setTrendSort('gain')" id="tth_gain" title="10周累计涨幅（首根收盘→末根收盘）">10周涨幅<span class="sort-arrow"></span></th>
             <th onclick="setTrendSort('ret20')" id="tth_ret20" title="20周累计涨幅">20周涨幅<span class="sort-arrow"></span></th>
@@ -4414,9 +4414,9 @@ function renderTrendResults() {
     ...trendAllResults.filter(s => !_wlCodeSet.has(s.代码) && _passFilter(s)),
   ];
 
-  // Score = slope^1.1 / (1 + σ_res): 斜率取 1.1 次方后再除噪声项
-  const score = s => s.trend_slope > 0
-    ? Math.pow(Math.min(s.trend_slope, 4.5), 1.1) * (8 - (s.sigma_res ?? 99))
+  // Score = slope^1.1 / σ_res：信噪比形式，去除 slope 封顶和线性相减
+  const score = s => (s.trend_slope > 0 && (s.sigma_res ?? 0) > 0)
+    ? Math.pow(s.trend_slope, 1.1) / s.sigma_res
     : 0;
 
   // Sort
