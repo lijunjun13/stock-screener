@@ -1375,27 +1375,12 @@ function _drawIntraday(divId, data, isHk = false, dailyRows = null, isUs = false
   });
   chart.priceScale('left').applyOptions({ scaleMargins: { top: 0.05, bottom: 0.25 } });
 
-  // Build session end timestamp for this market
-  const _sessionEnd = toSec((isHk || isUs) ? '16:00' : '15:00');
-
-  // Whitespace anchor: { time } with no value → extends time axis without drawing anything
-  const _wsAnchor = { time: _sessionEnd };
-
-  // Set baseline + vwap data with whitespace anchor
-  // Whitespace = { time } with no value → LWC extends the time axis but draws nothing there
-  const baselineData = prices.map((p, i) => ({ time: toSec(times[i]), value: p }));
-  if (!baselineData.length || baselineData[baselineData.length - 1].time < _sessionEnd)
-    baselineData.push(_wsAnchor);
-  baseline.setData(baselineData);
-
-  const vwapData = vwap.map((v, i) => ({ time: toSec(times[i]), value: v }));
-  if (!vwapData.length || vwapData[vwapData.length - 1].time < _sessionEnd)
-    vwapData.push(_wsAnchor);
-  vwapLine.setData(vwapData);
+  // Set all series data — NO anchors; extend axis via setVisibleRange after rAF
+  baseline.setData(prices.map((p, i) => ({ time: toSec(times[i]), value: p })));
+  vwapLine.setData(vwap.map((v, i)    => ({ time: toSec(times[i]), value: v })));
 
   const pctData = prices.map((p, i) => ({ time: toSec(times[i]), value: ref > 0 ? (p/ref-1)*100 : 0 }));
-  const needsAnchor = !pctData.length || pctData[pctData.length - 1].time < _sessionEnd;
-  pctLine.setData(needsAnchor ? [...pctData, _wsAnchor] : pctData);
+  pctLine.setData(pctData);
 
   // 成交量（底部）
   const volSeries = chart.addHistogramSeries({
@@ -1409,11 +1394,14 @@ function _drawIntraday(divId, data, isHk = false, dailyRows = null, isUs = false
     color: prices[i] >= (i === 0 ? ref : prices[i-1]) ? 'rgba(220,60,60,0.75)' : 'rgba(40,170,80,0.75)',
   })));
 
-  // 固定横轴到完整交易时段：A股 09:30-15:00，港股/美股 09:30-16:00
-  chart.timeScale().setVisibleRange({
-    from: toSec('09:30'),
-    to:   _sessionEnd,
-  });
+  // 固定横轴到完整交易时段。
+  // LWC v4 会在 setData 后内部调用 fitContent() 覆盖 setVisibleRange；
+  // 用 requestAnimationFrame 保证在 fitContent 之后执行。
+  const _sessionEnd = toSec((isHk || isUs) ? '16:00' : '15:00');
+  const _sessionFrom = toSec('09:30');
+  const _applyRange = () => chart.timeScale().setVisibleRange({ from: _sessionFrom, to: _sessionEnd });
+  _applyRange();
+  requestAnimationFrame(_applyRange);
 
   _lwcState.set(divId, { chart });
   const ro = new ResizeObserver(() => chart.applyOptions({ width: divEl.clientWidth, height: divEl.clientHeight }));
