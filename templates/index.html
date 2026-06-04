@@ -913,10 +913,8 @@ async function loadList() {
 
     const total = d.total;
     const sumMkt = allStocks.reduce((s, x) => s + x['市值亿'], 0);
-    document.getElementById('sTotal').textContent   = total;
-    document.getElementById('sTotalMkt').textContent = (sumMkt / 10000).toFixed(1);
-    document.getElementById('sAvgMkt').textContent  = (sumMkt / total).toFixed(0);
-    document.getElementById('sTime').textContent    = new Date().toLocaleTimeString('zh-CN');
+    _aStatsCache = { total, sumMkt, time: new Date().toLocaleTimeString('zh-CN') };
+    _refreshAStats();
 
     renderTable();
   } catch(e) {
@@ -3865,6 +3863,16 @@ let _activeMarket    = 'a';  // 'a' | 'hk' | 'us'
 
 let _activeSubTab = 'stock';  // 'stock' | 'etf'
 
+let _aStatsCache = null;
+function _refreshAStats() {
+  if (!_aStatsCache) return;
+  const { total, sumMkt, time } = _aStatsCache;
+  document.getElementById('sTotal').textContent    = total;
+  document.getElementById('sTotalMkt').textContent = (sumMkt / 10000).toFixed(1);
+  document.getElementById('sAvgMkt').textContent   = (sumMkt / total).toFixed(0);
+  document.getElementById('sTime').textContent     = time;
+}
+
 const _MARKET_META = {
   a:  {
     subtitle:  '市值 &gt; 300亿 &nbsp;|&nbsp; 后复权日线 10年 &nbsp;|&nbsp; 周K线10根对数线性回归趋势评分',
@@ -3897,6 +3905,11 @@ function setMarket(m) {
 
   _updateMarketMeta(m);
 
+  // Reset stats to "—" immediately so stale data from the previous market is never shown
+  ['sTotal', 'sTotalMkt', 'sAvgMkt', 'sTime'].forEach(id => {
+    document.getElementById(id).textContent = '—';
+  });
+
   // 子tab只在A股显示
   const subTabs = document.getElementById('aSubTabs');
   if (subTabs) subTabs.style.display = (m === 'a') ? '' : 'none';
@@ -3904,9 +3917,8 @@ function setMarket(m) {
   // 切换主列表数据
   if (m === 'a') {
     setSubTab(_activeSubTab, false);   // 恢复A股子tab状态
-    // 恢复 A股 stats strip
     document.getElementById('statsStrip').style.display = '';
-    if (allStocks.length) renderTable();    // 已有数据直接渲染
+    if (allStocks.length) { renderTable(); _refreshAStats(); }
     else loadList();
   } else if (m === 'hk') {
     document.getElementById('stockTblWrap').style.display = '';
