@@ -1478,7 +1478,7 @@ def _run_trend_scan(stock_list: list[dict]) -> None:
             else:
                 industry = _fetch_industry_board(code)
 
-            h7, h30, last_cls, atr_50d, chg_live = _fetch_recent_highs(tc)
+            max_h50, max_h50b, last_cls, atr_50d, chg_live = _fetch_recent_highs(tc)
 
             # 20-week return (for overextension penalty in UI)
             ret20w = None
@@ -1504,8 +1504,8 @@ def _run_trend_scan(stock_list: list[dict]) -> None:
                 "sigma_res":     sigma_res,
                 "trend_closes":  norm,
                 "industry_board": industry,
-                "max_high_7d":   h7,
-                "max_high_30d":  h30,
+                "max_high_50d":  max_h50,
+                "max_high_50d_b": max_h50b,
                 "last_close":    last_cls,
                 "atr_50d":       atr_50d,
                 "ret20w":        ret20w,
