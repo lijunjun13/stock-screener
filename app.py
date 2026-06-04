@@ -65,6 +65,29 @@ def _init_redis():
 _init_redis()
 
 
+def _redis_cleanup():
+    """启动时清理占空间的大型 key（kline 历史、旧趋势列表）。"""
+    if not _redis:
+        return
+    try:
+        deleted = 0
+        for pattern in ("kline_hist_*", "kline_recent_*", "trend_stock_list_v3"):
+            cursor = 0
+            while True:
+                cursor, keys = _redis.scan(cursor, match=pattern, count=200)
+                if keys:
+                    _redis.delete(*keys)
+                    deleted += len(keys)
+                if cursor == 0:
+                    break
+        if deleted:
+            print(f"[cache] Redis cleanup: deleted {deleted} large/stale keys")
+    except Exception as e:
+        print(f"[cache] Redis cleanup error: {e}")
+
+_redis_cleanup()
+
+
 def _get(key: str, ttl: int):
     if _redis:
         try:
@@ -84,12 +107,15 @@ def _get(key: str, ttl: int):
     return None
 
 
+_REDIS_MAX_BYTES = 30 * 1024   # 超过 30 KB 的大数据只存内存，不占 Redis 空间
+
 def _set(key: str, data):
     if _redis:
         try:
             payload = json.dumps({"data": data, "ts": time.time()})
-            _redis.setex(key, 86400 * 7, payload)  # 7天后 Redis 自动清理
-            return
+            if len(payload) <= _REDIS_MAX_BYTES:
+                _redis.setex(key, 86400 * 2, payload)  # 2 天 TTL，免费层不超限
+                return
         except Exception:
             pass
     with _cache_lock:
