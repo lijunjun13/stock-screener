@@ -1379,10 +1379,13 @@ function _drawIntraday(divId, data, isHk = false, dailyRows = null, isUs = false
   const _sessionFrom = toSec('09:30');
   const _sessionEnd  = toSec((isHk || isUs) ? '16:00' : '15:00');
 
-  // ── Invisible anchor series on a hidden price scale ───────────────────────
-  // LWC v4 cannot setVisibleRange beyond the last data bar.
-  // Adding a fully-hidden series with data at session start/end forces the
-  // time axis to include the full session without any visible rendering.
+  // ── Invisible anchor series: fill EVERY session minute as whitespace ──────
+  // LWC v4 allocates one "bar slot" per unique timestamp across all series.
+  // With only 2 anchor points (09:30 + 16:00), LWC creates 2 bar slots, so
+  // the gap 10:30→16:00 becomes one giant slot and time labels are skewed.
+  // Filling every minute (09:30..16:00) gives uniform bar spacing, ensuring
+  // data bars occupy the correct proportional width and baseline fill stops
+  // at the last real data point.
   const _anchor = chart.addLineSeries({
     priceScaleId: '_session_anchor',
     color: 'transparent', lineWidth: 0,
@@ -1390,10 +1393,12 @@ function _drawIntraday(divId, data, isHk = false, dailyRows = null, isUs = false
     autoscaleInfoProvider: () => null,
   });
   chart.priceScale('_session_anchor').applyOptions({ visible: false });
-  _anchor.setData([
-    { time: _sessionFrom, value: 0 },
-    { time: _sessionEnd,  value: 0 },
-  ]);
+  {
+    const ws = [];
+    for (let t = _sessionFrom; t <= _sessionEnd; t += 60)
+      ws.push({ time: t });   // whitespace = { time } only, no value → invisible
+    _anchor.setData(ws);
+  }
   // ─────────────────────────────────────────────────────────────────────────
 
   baseline.setData(prices.map((p, i) => ({ time: toSec(times[i]), value: p })));
