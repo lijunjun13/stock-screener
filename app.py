@@ -3076,10 +3076,12 @@ def analyze_chart(code: str):
                     extra_headers={"X-TT-LOGID": f"dp-finder-phase-{code}"},
                 )
                 in_search = False; search_n = 0; tc_args: dict = {}; fin_reason = None
+                raw_chunks: list = []   # debug: keep last 5 chunks when buf is empty
                 for chunk in stream:
                     if not chunk.choices: continue
                     delta = chunk.choices[0].delta
                     reason = chunk.choices[0].finish_reason
+                    if not buf: raw_chunks.append(str(chunk)[:300])
                     if delta.tool_calls:
                         for tc in delta.tool_calls:
                             idx = tc.index
@@ -3096,14 +3098,45 @@ def analyze_chart(code: str):
                                         yield f"data: {json.dumps({'status': f'🔍 ({search_n}) {q}'})}\n\n"
                                 except (json.JSONDecodeError, AttributeError):
                                     pass
-                    if delta.content:
+                    # Some Gemini grounded responses put text in delta.content or message.content
+                    content_text = delta.content
+                    if not content_text and hasattr(chunk.choices[0], 'message'):
+                        content_text = getattr(chunk.choices[0].message, 'content', None)
+                    if content_text:
                         if in_search:
                             in_search = False
                             yield f"data: {json.dumps({'status': ''})}\n\n"
-                        buf.append(delta.content)
-                        yield f"data: {json.dumps({'text': delta.content})}\n\n"
+                        buf.append(content_text)
+                        yield f"data: {json.dumps({'text': content_text})}\n\n"
                     if reason in ("stop", "length"):
                         fin_reason = reason; break
+                # If Gemini returned nothing (e.g., search-only run with no text output),
+                # retry once without google_search to force text generation.
+                if not buf:
+                    import sys
+                    print(f"[phase] empty buf for {code}, retrying without google_search. chunks: {raw_chunks[-3:]}", file=sys.stderr)
+                    yield f"data: {json.dumps({'status': '重试中（无搜索）…'})}\n\n"
+                    stream2 = client.chat.completions.create(
+                        model=model, stream=True, messages=messages,
+                        max_tokens=10000,
+                        extra_headers={"X-TT-LOGID": f"dp-finder-phase-{code}-retry"},
+                    )
+                    fin_reason = None
+                    for chunk in stream2:
+                        if not chunk.choices: continue
+                        delta = chunk.choices[0].delta
+                        reason = chunk.choices[0].finish_reason
+                        content_text = delta.content
+                        if not content_text and hasattr(chunk.choices[0], 'message'):
+                            content_text = getattr(chunk.choices[0].message, 'content', None)
+                        if content_text:
+                            buf.append(content_text)
+                            yield f"data: {json.dumps({'text': content_text})}\n\n"
+                        if reason in ("stop", "length"):
+                            fin_reason = reason; break
+                if not buf:
+                    yield f"data: {json.dumps({'error': 'AI 未返回分析内容，请重试'})}\n\n"
+                    return
                 if fin_reason == "stop":
                     _set(cache_key, "".join(buf))
                 yield f"data: {json.dumps({'done': True})}\n\n"
