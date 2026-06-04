@@ -3982,7 +3982,7 @@ function renderTrendResults() {
     // 市场过滤：A股（含ETF）/ 港股
     if (_activeMarket === 'a'  &&  s.is_hk) return false;
     if (_activeMarket === 'hk' && !s.is_hk) return false;
-    if (_closes52wCache.has(s.代码) && !_closes52wCache.get(s.代码).closes_52w) return false;
+    if (_closes52wCache.get(s.代码)?.closes_52w === false) return false;
     if (!isNaN(fSlopeMin) && s.trend_slope < fSlopeMin) return false;
     if (s.trend_slope > slopeMax)                        return false;
     if (!isNaN(fGainMax) && s.atr_50d > 0) {
@@ -4397,6 +4397,7 @@ function startTrendScan(force = false) {
   document.getElementById('trendProgress').style.display = 'block';
   if (force) {
     trendAllResults = [];
+    _closes52wCache.clear();   // 清空旧 52w 缓存，避免过期 null 值过滤掉有效股票
     document.getElementById('trendTbody').innerHTML =
       `<tr><td colspan="14" style="text-align:center;padding:30px;color:var(--muted)">
         <div class="spin" style="width:20px;height:20px;border-width:2px;margin:auto"></div>
