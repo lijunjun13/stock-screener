@@ -1310,9 +1310,12 @@ function _drawIntraday(divId, data, isHk = false, dailyRows = null) {
   vwapLine.setData(vwap.map((v, i) => ({ time: toSec(times[i]), value: v })));
 
   // 止损带（日线50日ATR → 水平价格线）
-  if (dailyRows && dailyRows.length >= 5) {
+  // dailyRows 是后复权价格；用 ref（实际昨收）÷ 日线最后一根后复权收盘 做比例换算
+  if (dailyRows && dailyRows.length >= 5 && ref > 0) {
     const sl = dailyRows.slice(-50);
-    const maxC = Math.max(...sl.map(r => r.close));
+    const lastHfq = dailyRows[dailyRows.length - 1].close;
+    const scale   = lastHfq > 0 ? ref / lastHfq : 1;   // HFQ → 实际价格
+    const maxC    = Math.max(...sl.map(r => r.close)) * scale;
     let sum = 0, cnt = 0;
     for (let j = 1; j < sl.length; j++) {
       if (sl[j-1].close > 0) { sum += Math.abs(sl[j].close / sl[j-1].close - 1); cnt++; }
