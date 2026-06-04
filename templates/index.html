@@ -2695,13 +2695,14 @@ function _drawPhaseBandsLWC(phases) {
       // If start is also off-screen to the right of visible data, skip
       if (rawX0 === null && rawX1 <= 0) return;
 
-      // First phase: extend to first actual bar (not just chart left-padding).
-      // If rawX0 is null (start date not in view or off-screen), fall back to first bar coord.
+      // Phase 1 must not start before the first actual bar (left padding area must stay empty).
+      // Use the MAX of rawX0 and firstCoord so we never color the pre-data empty space.
+      // If the first bar is off-screen to the left (firstCoord=null), fall back to 0.
       let left = Math.max(rawX0 ?? 0, 0);
       if (i === 0 && _lwcLTFirstDate) {
         const [fy, fm, fd] = _lwcLTFirstDate.split('-').map(Number);
         const firstCoord = ts.timeToCoordinate({ year: fy, month: fm, day: fd });
-        left = Math.max(Math.min(left, firstCoord ?? left), 0);
+        if (firstCoord !== null) left = Math.max(left, firstCoord);
       }
       const right = Math.min(rawX1, W);
       if (right <= left) return;
