@@ -457,7 +457,7 @@
 
 <header class="site-header">
   <h1>全市场趋势交易量化系统</h1>
-  <p>市值 &gt; 300亿 &nbsp;|&nbsp; 后复权日线 10年 &nbsp;|&nbsp; 周K线10根对数线性回归趋势评分</p>
+  <p id="headerSubtitle">市值 &gt; 300亿 &nbsp;|&nbsp; 后复权日线 10年 &nbsp;|&nbsp; 周K线10根对数线性回归趋势评分</p>
   <div class="market-tabs">
     <button class="market-tab active" data-market="a"  onclick="setMarket('a')">🇨🇳 A股</button>
     <button class="market-tab"        data-market="hk" onclick="setMarket('hk')">🇭🇰 港股</button>
@@ -466,9 +466,9 @@
 </header>
 
 <div class="stats-strip" id="statsStrip">
-  <div class="stat-pill"><div class="val" id="sTotal">—</div><div class="lbl">符合条件公司</div></div>
-  <div class="stat-pill"><div class="val" id="sTotalMkt">—</div><div class="lbl">总市值（万亿元）</div></div>
-  <div class="stat-pill"><div class="val" id="sAvgMkt">—</div><div class="lbl">平均市值（亿元）</div></div>
+  <div class="stat-pill"><div class="val" id="sTotal">—</div><div class="lbl" id="sLblTotal">符合条件公司</div></div>
+  <div class="stat-pill"><div class="val" id="sTotalMkt">—</div><div class="lbl" id="sLblTotalMkt">总市值（万亿元）</div></div>
+  <div class="stat-pill"><div class="val" id="sAvgMkt">—</div><div class="lbl" id="sLblAvgMkt">平均市值（亿元）</div></div>
   <div class="stat-pill"><div class="val" id="sTime">—</div><div class="lbl">数据更新时间</div></div>
 </div>
 
@@ -3865,12 +3865,37 @@ let _activeMarket    = 'a';  // 'a' | 'hk' | 'us'
 
 let _activeSubTab = 'stock';  // 'stock' | 'etf'
 
+const _MARKET_META = {
+  a:  {
+    subtitle:  '市值 &gt; 300亿 &nbsp;|&nbsp; 后复权日线 10年 &nbsp;|&nbsp; 周K线10根对数线性回归趋势评分',
+    lblTotal:  '符合条件公司',
+    lblTotMkt: '总市值（万亿元）',
+    lblAvgMkt: '平均市值（亿元）',
+  },
+  hk: {
+    subtitle:  '市值 &gt; 500亿港元 &nbsp;|&nbsp; 后复权日线 &nbsp;|&nbsp; 周K线10根对数线性回归趋势评分',
+    lblTotal:  '符合条件公司',
+    lblTotMkt: '总市值（万亿港元）',
+    lblAvgMkt: '平均市值（亿港元）',
+  },
+};
+
+function _updateMarketMeta(m) {
+  const meta = _MARKET_META[m] || _MARKET_META.a;
+  document.getElementById('headerSubtitle').innerHTML = meta.subtitle;
+  document.getElementById('sLblTotal').textContent    = meta.lblTotal;
+  document.getElementById('sLblTotalMkt').textContent = meta.lblTotMkt;
+  document.getElementById('sLblAvgMkt').textContent   = meta.lblAvgMkt;
+}
+
 function setMarket(m) {
   if (m === 'us') return;
   _activeMarket = m;
   document.querySelectorAll('.market-tab').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.market === m);
   });
+
+  _updateMarketMeta(m);
 
   // 子tab只在A股显示
   const subTabs = document.getElementById('aSubTabs');
