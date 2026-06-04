@@ -1443,8 +1443,10 @@ function closeModal(ev) {
 }
 
 // ── chart ────────────────────────────────────────────────────────────────────
-let _lwcLTChart   = null; // 长期趋势图 价格面板 LWC 实例
-let _lwcLTPEChart = null; // 长期趋势图 PE 子图 LWC 实例
+let _lwcLTChart    = null; // 长期趋势图 价格面板 LWC 实例
+let _lwcLTPEChart  = null; // 长期趋势图 PE 子图 LWC 实例
+let _lwcLTLastDate  = null; // 价格数据最后一个交易日 "YYYY-MM-DD"
+let _lwcLTFirstDate = null; // 价格数据第一个交易日 "YYYY-MM-DD"
 
 function drawChart(d, name, code) {
   const hasPE = !!(d.pe_dates && d.pe_vals && d.pe_vals.length > 20);
@@ -1553,6 +1555,8 @@ function drawChart(d, name, code) {
     priceLineColor: 'rgba(88,166,255,.35)',
     lastValueVisible: true, crosshairMarkerVisible: false });
   _setD(priceSeries, d.dates, d.prices);
+  _lwcLTLastDate  = d.dates && d.dates.length ? d.dates[d.dates.length - 1] : null;
+  _lwcLTFirstDate = d.dates && d.dates.length ? d.dates[0] : null;
 
   // ── 回归线 ──────────────────────────────────────────────────────────────
   const reg10 = _mkLine('#f78166', 2, LS.Dotted,    { visible: sel10 });
@@ -2662,18 +2666,6 @@ function _drawPhaseBandsLWC(phases) {
     return null;
   }
 
-  // Find coordinate of the most recent bar that actually has data (up to 10 days back).
-  // Used to cap bands at the last real data point, not in the empty right-padding area.
-  function _lastBarCoord(ts) {
-    const now = new Date(Date.now() + 8 * 3600000); // CST
-    for (let off = 0; off <= 10; off++) {
-      const d = new Date(now - off * 86400000);
-      const c = ts.timeToCoordinate({ year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() });
-      if (c !== null) return c;
-    }
-    return null;
-  }
-
   function updateBands() {
     overlay.innerHTML = '';
     const ts = _lwcLTChart.timeScale();
@@ -2693,14 +2685,24 @@ function _drawPhaseBandsLWC(phases) {
       let rawX0 = _probeCoord(ts, sy, sm, 1, 7);
       let rawX1 = _probeCoord(ts, ey, em, 28, 22);
 
-      // If end date is beyond data (future), anchor to last actual bar to avoid
-      // coloring the empty right-padding area of the chart.
-      if (rawX1 === null) rawX1 = _lastBarCoord(ts) ?? W;
+      // If end date is beyond data (future), anchor to the last actual bar to avoid
+      // coloring the empty right-padding area. Use the globally-recorded last date.
+      if (rawX1 === null && _lwcLTLastDate) {
+        const [ly, lm, ld] = _lwcLTLastDate.split('-').map(Number);
+        rawX1 = ts.timeToCoordinate({ year: ly, month: lm, day: ld }) ?? W;
+      }
+      if (rawX1 === null) rawX1 = W;
       // If start is also off-screen to the right of visible data, skip
       if (rawX0 === null && rawX1 <= 0) return;
 
-      // First phase: extend to left edge; last phase already capped by _lastBarCoord
-      const left  = i === 0 ? 0 : Math.max(rawX0 ?? 0, 0);
+      // First phase: extend to first actual bar (not just chart left-padding).
+      // If rawX0 is null (start date not in view or off-screen), fall back to first bar coord.
+      let left = Math.max(rawX0 ?? 0, 0);
+      if (i === 0 && _lwcLTFirstDate) {
+        const [fy, fm, fd] = _lwcLTFirstDate.split('-').map(Number);
+        const firstCoord = ts.timeToCoordinate({ year: fy, month: fm, day: fd });
+        left = Math.max(Math.min(left, firstCoord ?? left), 0);
+      }
       const right = Math.min(rawX1, W);
       if (right <= left) return;
 
