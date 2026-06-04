@@ -2651,6 +2651,17 @@ function _drawPhaseBandsLWC(phases) {
 
   const todayStr = new Date().toISOString().slice(0, 10);
 
+  // Probe nearby dates to find the nearest trading-day coordinate.
+  // LWC returns null for weekends/holidays and dates beyond the series range.
+  function _probeCoord(ts, year, month, fromDay, toDay) {
+    const step = fromDay <= toDay ? 1 : -1;
+    for (let d = fromDay; step > 0 ? d <= toDay : d >= toDay; d += step) {
+      const c = ts.timeToCoordinate({ year, month, day: d });
+      if (c !== null) return c;
+    }
+    return null;
+  }
+
   function updateBands() {
     overlay.innerHTML = '';
     const ts = _lwcLTChart.timeScale();
@@ -2660,17 +2671,23 @@ function _drawPhaseBandsLWC(phases) {
       if (!phase.startDate) return;
       const { solid, fill } = PHASE_PALETTE[i % PHASE_PALETTE.length];
 
-      const t0 = _str2lwcTime(phase.startDate + '-01');
-      const t1 = _str2lwcTime(phase.endDate ? phase.endDate + '-28' : todayStr);
+      // Parse start/end YYYY-MM
+      const [sy, sm] = phase.startDate.split('-').map(Number);
+      const endStr   = phase.endDate || todayStr.slice(0, 7);
+      const [ey, em] = endStr.split('-').map(Number);
 
-      const rawX0 = ts.timeToCoordinate(t0);
-      const rawX1 = ts.timeToCoordinate(t1);
+      // Probe forward from 1st for start (handles weekend/holiday on the 1st)
+      // Probe backward from 28th for end (handles weekends and future dates)
+      let rawX0 = _probeCoord(ts, sy, sm, 1, 7);
+      let rawX1 = _probeCoord(ts, ey, em, 28, 22);
 
-      // Both off-screen → skip
-      if (rawX0 === null && rawX1 === null) return;
+      // If end is in the future/beyond data, anchor to right edge
+      if (rawX1 === null) rawX1 = W;
+      // If start is beyond the right edge of visible data, skip
+      if (rawX0 === null && rawX1 <= 0) return;
 
       const left  = Math.max(rawX0 ?? 0, 0);
-      const right = Math.min(rawX1 ?? W, W);
+      const right = Math.min(rawX1, W);
       if (right <= left) return;
 
       // Background band
