@@ -1482,6 +1482,7 @@ def _fetch_recent_highs(tc_code: str) -> tuple[float, float, float, float, float
     # ── slow-changing kline data: cached 2 h ─────────────────────────────────
     cache_key = f"rec_highs_v6_{tc_code}"
     cached = _get(cache_key, ttl=43200)
+    rows = []   # needed for prev_vol below; stays [] on cache-hit path
     if cached is not None:
         max_c50, last_hfq, atr = cached
     else:
