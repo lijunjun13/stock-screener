@@ -4160,10 +4160,6 @@ function renderTrendResults() {
         ? `<span style="font-size:.62rem;color:#3fb950;margin-left:3px">↑${diff}</span>`
         : `<span style="font-size:.62rem;color:#f85149;margin-left:3px">↓${-diff}</span>`;
 
-    const momBadge = momentumPenalty(s) < 1
-      ? `<span title="7日最高价低于30日最高价，动量惩罚×0.15" style="font-size:.65rem;color:#f85149;margin-left:4px">⚡</span>`
-      : '';
-
     // 回撤警示 badge：与 50日高点回撤超过 N×ATR 时显示
     const ddBadge = (() => {
       if (!s.max_high_50d || !s.last_close || !s.atr_50d) return '';
@@ -4198,7 +4194,7 @@ function renderTrendResults() {
     return `<tr onclick="${rowClick}"${trStyle}>
       <td class="rank">${isWlPin ? '⭐' : s._new_rank}${rankBadge}</td>
       <td class="code">${s.代码}${typeBadge}</td>
-      <td style="white-space:nowrap">${s.名称}${momBadge}${ddBadge}${wlBtnT}<span
+      <td style="white-space:nowrap">${s.名称}${ddBadge}${wlBtnT}<span
         onmouseenter="showCorrPanel('${s.代码}',this)"
         onmouseleave="hideCorrPanel()"
         onclick="event.stopPropagation()"
