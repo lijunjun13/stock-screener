@@ -1060,6 +1060,24 @@ function _d2lwc(dateStr) {
   return { year: y, month: m, day: d };
 }
 
+function _computeAtrBands(rows, win = 50) {
+  const n = rows.length;
+  const topData = [], botData = [];
+  for (let i = 0; i < n; i++) {
+    const lo = Math.max(0, i - win + 1);
+    const sl = rows.slice(lo, i + 1);
+    const maxC = Math.max(...sl.map(r => r.close));
+    let sum = 0, cnt = 0;
+    for (let j = 1; j < sl.length; j++) {
+      if (sl[j-1].close > 0) { sum += Math.abs(sl[j].close / sl[j-1].close - 1); cnt++; }
+    }
+    const atr = cnt > 0 ? sum / cnt : 0;
+    topData.push(atr > 0 ? maxC * (1 - 3 * atr) : null);
+    botData.push(atr > 0 ? maxC * (1 - 4 * atr) : null);
+  }
+  return { topData, botData };
+}
+
 function _drawKline(divId, rows, maWindows, _ignored) {
   if (!rows || !rows.length) { _stError(divId, '暂无K线数据'); return; }
 
@@ -1111,11 +1129,28 @@ function _drawKline(divId, rows, maWindows, _ignored) {
     return s;
   });
 
+  // ── ATR 止损带（滚动50根：橙虚线上沿 + 红虚线下沿）──────────────────────
+  const LS_K = LightweightCharts.LineStyle;
+  const { topData: atrTops, botData: atrBots } = _computeAtrBands(rows);
+  const stopTop = chart.addAreaSeries({
+    lineColor: 'rgba(251,146,60,.85)', topColor: 'rgba(251,146,60,.10)',
+    bottomColor: 'rgba(251,146,60,0)', lineWidth: 1, lineStyle: LS_K.Dashed,
+    priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+    autoscaleInfoProvider: () => null,
+  });
+  stopTop.setData(rows.map((r, i) => atrTops[i] != null ? { time: _d2lwc(r.date), value: atrTops[i] } : null).filter(Boolean));
+  const stopBot = chart.addLineSeries({
+    color: 'rgba(239,68,68,.85)', lineWidth: 1, lineStyle: LS_K.Dashed,
+    priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+    autoscaleInfoProvider: () => null,
+  });
+  stopBot.setData(rows.map((r, i) => atrBots[i] != null ? { time: _d2lwc(r.date), value: atrBots[i] } : null).filter(Boolean));
+
   // 初始显示末尾 150 根
   chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, n - 150), to: n - 1 });
 
   // 存 state
-  _lwcState.set(divId, { chart, candleSeries, maSeries, maData, rows: rows.slice(), loading: false, maWindows: wins });
+  _lwcState.set(divId, { chart, candleSeries, maSeries, maData, rows: rows.slice(), loading: false, maWindows: wins, stopTop, stopBot });
 
   // 响应容器尺寸变化
   const ro = new ResizeObserver(() => chart.applyOptions({ width: divEl.clientWidth, height: divEl.clientHeight }));
@@ -1192,13 +1227,19 @@ async function _loadMoreKline(divId) {
         .map((v, idx) => v !== null ? { time: _d2lwc(allRows[idx].date), value: v } : null)
         .filter(Boolean));
     });
+    // 更新止损带
+    if (st.stopTop && st.stopBot) {
+      const { topData: nTops, botData: nBots } = _computeAtrBands(allRows);
+      st.stopTop.setData(allRows.map((r, i) => nTops[i] != null ? { time: _d2lwc(r.date), value: nTops[i] } : null).filter(Boolean));
+      st.stopBot.setData(allRows.map((r, i) => nBots[i] != null ? { time: _d2lwc(r.date), value: nBots[i] } : null).filter(Boolean));
+    }
   } catch(_) {}
 
   const s2 = _lwcState.get(divId);
   if (s2) s2.loading = false;
 }
 
-function _drawIntraday(divId, data, isHk = false) {
+function _drawIntraday(divId, data, isHk = false, dailyRows = null) {
   if (!data.success || !data.times?.length) { _stError(divId, '暂无分时数据'); return; }
 
   const divEl = document.getElementById(divId);
@@ -1267,6 +1308,24 @@ function _drawIntraday(divId, data, isHk = false) {
     priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
   });
   vwapLine.setData(vwap.map((v, i) => ({ time: toSec(times[i]), value: v })));
+
+  // 止损带（日线50日ATR → 水平价格线）
+  if (dailyRows && dailyRows.length >= 5) {
+    const sl = dailyRows.slice(-50);
+    const maxC = Math.max(...sl.map(r => r.close));
+    let sum = 0, cnt = 0;
+    for (let j = 1; j < sl.length; j++) {
+      if (sl[j-1].close > 0) { sum += Math.abs(sl[j].close / sl[j-1].close - 1); cnt++; }
+    }
+    const atr = cnt > 0 ? sum / cnt : 0;
+    if (atr > 0) {
+      const LS_I = LightweightCharts.LineStyle;
+      baseline.createPriceLine({ price: maxC * (1 - 3 * atr), color: 'rgba(251,146,60,.9)',
+        lineWidth: 1, lineStyle: LS_I.Dashed, axisLabelVisible: true, title: '3×ATR' });
+      baseline.createPriceLine({ price: maxC * (1 - 4 * atr), color: 'rgba(239,68,68,.9)',
+        lineWidth: 1, lineStyle: LS_I.Dashed, axisLabelVisible: true, title: '4×ATR' });
+    }
+  }
 
   // 右轴显示涨跌幅（%）
   const pctLine = chart.addLineSeries({
@@ -1338,9 +1397,9 @@ async function _loadShortTerm(code) {
     fetch(`/api/stock/intraday/${code}`).then(r => r.json()).catch(() => null),
   ]);
 
-  // 分时图（5位数字 = 港股，6位 = A股）
+  // 分时图（5位数字 = 港股，6位 = A股；传入日线数据用于止损带）
   const _isHk = /^\d{5}$/.test(code);
-  if (intradayRes) _drawIntraday('stIntradayDiv', intradayRes, _isHk);
+  if (intradayRes) _drawIntraday('stIntradayDiv', intradayRes, _isHk, klineRes?.daily || null);
   else _stError('stIntradayDiv', '分时数据加载失败');
 
   // 日线
