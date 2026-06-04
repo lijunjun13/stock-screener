@@ -2130,21 +2130,25 @@ def get_stock_kline(code: str):
         except Exception:
             pass
 
-    # 补本周实时周 K 线（周线接口不返回当前未完成的周）
-    if daily and weekly:
+    # 补/更新本周实时周 K 线
+    # 不论周线接口是否已有本周数据（可能只到昨天），都用日线数据重建，确保包含今日
+    if daily:
         week_start = (today - timedelta(days=today.weekday())).strftime("%Y-%m-%d")
-        if weekly[-1]["date"] < week_start:
-            this_week = [d for d in daily if d["date"] >= week_start]
-            if this_week:
-                weekly.append({
-                    "date":   this_week[-1]["date"],
-                    "open":   this_week[0]["open"],
-                    "high":   max(d["high"]   for d in this_week),
-                    "low":    min(d["low"]    for d in this_week),
-                    "close":  this_week[-1]["close"],
-                    "volume": sum(d["volume"] for d in this_week),
-                    "intraday": True,
-                })
+        this_week  = [d for d in daily if d["date"] >= week_start]
+        if this_week:
+            new_bar = {
+                "date":     this_week[-1]["date"],
+                "open":     this_week[0]["open"],
+                "high":     max(d["high"]   for d in this_week),
+                "low":      min(d["low"]    for d in this_week),
+                "close":    this_week[-1]["close"],
+                "volume":   sum(d["volume"] for d in this_week),
+                "intraday": True,
+            }
+            if weekly and weekly[-1]["date"] >= week_start:
+                weekly[-1] = new_bar   # 本周已有 → 替换为含今日数据的版本
+            else:
+                weekly.append(new_bar) # 本周缺失 → 追加
 
     return jsonify({"success": True, "daily": daily, "weekly": weekly})
 
