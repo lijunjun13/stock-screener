@@ -3518,7 +3518,8 @@ async function wlLoad() {
     if (d.success) {
       _wlStocks = d.stocks;
       wlRender();
-      renderTable();
+      if (_activeMarket === 'a') renderTable();
+      else if (_activeMarket === 'hk' && _hkStocks.length) renderHkTable();
       if (typeof renderTrendResults === 'function' && trendAllResults.length) renderTrendResults();
       if (typeof _updateModalWlBtn === 'function') _updateModalWlBtn();
     }
