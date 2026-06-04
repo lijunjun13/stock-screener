@@ -1520,8 +1520,11 @@ def _fetch_recent_highs(tc_code: str) -> tuple[float, float, float, float, float
         return (0.0, 0.0, 0.0, 0.0, None)
 
     # ── real-time intraday price: apply today's chg% to hfq last close ───────
+    # 与日K逻辑一致：若 qt.gtimg 成交量 == kline 最后一条成交量，说明今天尚未开盘，
+    # qt.gtimg 返回的是昨天数据，不能再乘一次昨天涨跌幅，直接用 last_hfq。
     cur_price = last_hfq
-    chg_pct   = None      # 今日涨跌幅（%），直接从实时行情取，避免用缓存股票列表
+    chg_pct   = None
+    prev_vol  = float(rows[-1][5]) if rows and len(rows[-1]) > 5 else -1
     try:
         r = _sess.get(f"https://qt.gtimg.cn/q={tc_code}", timeout=5)
         for ln in r.text.strip().split(";\n"):
@@ -1529,9 +1532,16 @@ def _fetch_recent_highs(tc_code: str) -> tuple[float, float, float, float, float
                 continue
             flds = ln.split('"')[1].split("~")
             if len(flds) > 32 and flds[32]:
-                chg       = float(flds[32])    # today's % change (e.g. -6.20)
-                chg_pct   = round(chg, 2)
-                cur_price = round(last_hfq * (1 + chg / 100), 4)
+                qt_vol = float(flds[6] or 0)
+                chg    = float(flds[32])
+                if qt_vol != prev_vol and qt_vol > 0:
+                    # 今天有新成交 → 用实时涨跌幅估算后复权当前价
+                    chg_pct   = round(chg, 2)
+                    cur_price = round(last_hfq * (1 + chg / 100), 4)
+                else:
+                    # 尚未开盘或成交量未变 → cur_price = 昨收，涨跌幅 = 0
+                    chg_pct   = 0.0
+                    cur_price = last_hfq
             break
     except Exception:
         pass
