@@ -4257,12 +4257,8 @@ function renderTrendResults() {
         : '';
 
     // Click action: open Eastmoney for ETF/HK; open internal modal for A-shares
-    const rowClick = s.is_etf
-      ? `window.open('https://quote.eastmoney.com/${s._tc || s.代码}.html','_blank')`
-      : `openModal('${s.代码}','${s.名称}')`;
-    const btnClick = s.is_etf
-      ? `event.stopPropagation();window.open('https://quote.eastmoney.com/${s._tc || s.代码}.html','_blank')`
-      : `event.stopPropagation();openModal('${s.代码}','${s.名称}')`;
+    const rowClick = `openModal('${s.代码}','${s.名称}')`;
+    const btnClick = `event.stopPropagation();openModal('${s.代码}','${s.名称}')`;
 
     const isWlPin = _wlCodeSet.has(s.代码);
     const trStyle = isWlPin ? ' style="background:rgba(227,179,65,.06);border-left:2px solid #e3b341"' : '';
@@ -4500,9 +4496,7 @@ function _renderMobileTrendCards(rows) {
       sparkSvg = `<svg viewBox="0 0 56 14" style="width:56px;height:14px;flex-shrink:0"><polyline points="${pts}" fill="none" stroke="${lc}" stroke-width="1.5"/></svg>`;
     }
 
-    const rowClick = s.is_etf
-      ? `window.open('https://quote.eastmoney.com/${s._tc||s.代码}.html','_blank')`
-      : `openModal('${s.代码}','${s.名称}')`;
+    const rowClick = `openModal('${s.代码}','${s.名称}')`;
 
     return `<div class="tm-card" onclick="${rowClick}">
       <div class="tm-top">
