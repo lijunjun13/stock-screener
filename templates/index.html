@@ -34,6 +34,16 @@
   }
   .site-header h1 { color: var(--accent); font-size: 1.7rem; margin-bottom: 4px; }
   .site-header p  { color: var(--muted); font-size: .87rem; margin: 0; }
+  .market-tabs { display:flex; justify-content:center; gap:8px; margin-top:14px; }
+  .market-tab {
+    padding:5px 20px; border-radius:20px; font-size:.82rem; font-weight:600;
+    border:1px solid var(--border); background:transparent; color:var(--muted);
+    cursor:pointer; transition:all .15s; letter-spacing:.03em;
+  }
+  .market-tab.active { background:rgba(88,166,255,.15); color:var(--accent); border-color:rgba(88,166,255,.5); }
+  .market-tab:hover:not(.active):not(.disabled) { background:rgba(255,255,255,.05); color:var(--text); }
+  .market-tab.disabled { opacity:.35; cursor:not-allowed; }
+  .market-tab .soon { font-size:.6rem; vertical-align:super; color:#e3b341; margin-left:3px; }
 
   /* stats strip */
   .stats-strip {
@@ -439,6 +449,11 @@
 <header class="site-header">
   <h1>全市场趋势交易量化系统</h1>
   <p>市值 &gt; 300亿 &nbsp;|&nbsp; 后复权日线 10年 &nbsp;|&nbsp; 周K线10根对数线性回归趋势评分</p>
+  <div class="market-tabs">
+    <button class="market-tab active" data-market="a"  onclick="setMarket('a')">🇨🇳 A股</button>
+    <button class="market-tab"        data-market="hk" onclick="setMarket('hk')">🇭🇰 港股</button>
+    <button class="market-tab disabled" data-market="us" title="即将上线">🇺🇸 美股<span class="soon">即将</span></button>
+  </div>
 </header>
 
 <div class="stats-strip" id="statsStrip">
@@ -3485,6 +3500,21 @@ _wlRefreshTimer = setInterval(wlLoad, 30000);
 
 let trendAllResults  = [];
 let trendPollTimer   = null;
+let _activeMarket    = 'a';  // 'a' | 'hk' | 'us'
+
+function setMarket(m) {
+  if (m === 'us') return;   // 美股暂未支持
+  _activeMarket = m;
+  document.querySelectorAll('.market-tab').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.market === m);
+  });
+  // 趋势交易：重新渲染（过滤到对应市场）
+  if (trendAllResults.length) renderTrendResults();
+  // 选股分析只支持 A股，港股时禁用/提示
+  const screenBtn = document.getElementById('btnScreen');
+  const trendBtn  = document.getElementById('btnTrendScan');
+  if (screenBtn) screenBtn.disabled = (m !== 'a');
+}
 let _liveChgTimer    = null;  // 盘中实时涨跌幅刷新定时器
 
 // 判断当前是否在 A 股交易时间（09:30–15:00 CST）
@@ -3717,6 +3747,9 @@ function renderTrendResults() {
   const _wlCodeSet = new Set(_wlStocks.map(w => w.code));
 
   const _passFilter = s => {
+    // 市场过滤：A股（含ETF）/ 港股
+    if (_activeMarket === 'a'  &&  s.is_hk) return false;
+    if (_activeMarket === 'hk' && !s.is_hk) return false;
     if (_closes52wCache.has(s.代码) && !_closes52wCache.get(s.代码).closes_52w) return false;
     if (!isNaN(fSlopeMin) && s.trend_slope < fSlopeMin) return false;
     if (s.trend_slope > slopeMax)                        return false;
