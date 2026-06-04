@@ -1309,23 +1309,19 @@ function _drawIntraday(divId, data, isHk = false, dailyRows = null) {
   });
   vwapLine.setData(vwap.map((v, i) => ({ time: toSec(times[i]), value: v })));
 
-  // 止损带（日线50日ATR → 水平价格线）
-  // dailyRows 是后复权价格；用 ref（实际昨收）÷ 日线最后一根后复权收盘 做比例换算
+  // 止损带：直接复用 _computeAtrBands 取日线最后一根的止损位，再按 HFQ→实际价 换算
+  // 这样与日线图的止损带数值完全对齐，消除两图矛盾
   if (dailyRows && dailyRows.length >= 5 && ref > 0) {
-    const sl = dailyRows.slice(-50);
-    const lastHfq = dailyRows[dailyRows.length - 1].close;
-    const scale   = lastHfq > 0 ? ref / lastHfq : 1;   // HFQ → 实际价格
-    const maxC    = Math.max(...sl.map(r => r.close)) * scale;
-    let sum = 0, cnt = 0;
-    for (let j = 1; j < sl.length; j++) {
-      if (sl[j-1].close > 0) { sum += Math.abs(sl[j].close / sl[j-1].close - 1); cnt++; }
-    }
-    const atr = cnt > 0 ? sum / cnt : 0;
-    if (atr > 0) {
+    const { topData, botData } = _computeAtrBands(dailyRows);
+    const lastTop = topData[topData.length - 1];
+    const lastBot = botData[botData.length - 1];
+    if (lastTop != null && lastBot != null) {
+      const lastHfq = dailyRows[dailyRows.length - 1].close;
+      const scale   = lastHfq > 0 ? ref / lastHfq : 1;
       const LS_I = LightweightCharts.LineStyle;
-      baseline.createPriceLine({ price: maxC * (1 - 3 * atr), color: 'rgba(251,146,60,.9)',
+      baseline.createPriceLine({ price: lastTop * scale, color: 'rgba(251,146,60,.9)',
         lineWidth: 1, lineStyle: LS_I.Dashed, axisLabelVisible: true, title: '3×ATR' });
-      baseline.createPriceLine({ price: maxC * (1 - 4 * atr), color: 'rgba(239,68,68,.9)',
+      baseline.createPriceLine({ price: lastBot * scale, color: 'rgba(239,68,68,.9)',
         lineWidth: 1, lineStyle: LS_I.Dashed, axisLabelVisible: true, title: '4×ATR' });
     }
   }
