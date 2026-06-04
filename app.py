@@ -2463,7 +2463,19 @@ def get_stock_intraday(code: str):
             hist = t.history(period="1d", interval="1m", auto_adjust=True)
             if hist.empty:
                 return jsonify({"success": False, "error": "No intraday data"})
-            prev_close = float(t.fast_info.previous_close or 0)
+            # Use yesterday's adjusted daily close as prev_close so it matches
+            # the daily K-line chart (both use auto_adjust=True).
+            prev_close = 0.0
+            try:
+                daily2 = t.history(period="2d", interval="1d", auto_adjust=True)
+                if len(daily2) >= 2:
+                    prev_close = round(float(daily2["Close"].iloc[-2]), 4)
+                elif len(daily2) == 1:
+                    prev_close = round(float(daily2["Close"].iloc[0]), 4)
+            except Exception:
+                pass
+            if not prev_close:
+                prev_close = float(t.fast_info.previous_close or 0)
             times, prices, volumes = [], [], []
             for ts, row in hist.iterrows():
                 # ts is timezone-aware; format as HH:MM in local exchange time
