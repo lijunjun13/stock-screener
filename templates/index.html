@@ -2579,7 +2579,7 @@ function _midDate(d1, d2) {
 // ── Draw phase bands + labels on the Plotly chart ────────────────────────────
 function drawPhaseBands(phases) {
   const cd = document.getElementById('chartDiv');
-  if (!cd || !cd.layout) return;
+  if (!cd || !cd.layout) return Promise.resolve();
   // Keep non-phase shapes / annotations
   const shapes = (cd.layout.shapes      || []).filter(s => !s._isPhase);
   const anns   = (cd.layout.annotations || []).filter(a => !a._isPhase);
