@@ -2377,6 +2377,140 @@ def trend_live_quotes():
     return jsonify(result)
 
 
+@app.route("/api/trend/screened")
+def trend_screened():
+    """返回与前端默认筛选条件完全一致的趋势选股结果（已过滤 + 评分排序）。
+
+    接受的 query 参数（对应前端控件，均有默认值）：
+      slope_min    斜率下限 %/周         默认 1.5
+      slope_top    去掉斜率 top N%       默认 1
+      sigma_max    σ_res 上限 %          默认 6
+      slope_natr   斜率 ≤ N×ATR         默认 2
+      mkt_min      市值下限 亿           默认 500
+      mkt_max      市值上限 亿           默认不限
+      excl_loss    排除亏损股 1/0        默认 1
+      excl_reverse 排除反转股 1/0        默认 1
+      penalty_20w  20周超涨惩罚 1/0      默认 1
+    """
+    with _trend_lock:
+        results = list(_trend_scan.get("results", []))
+        done    = _trend_scan.get("done", False)
+    if not results:
+        return jsonify({"ok": False, "error": "扫描尚未完成，请先触发 /api/trend/start"}), 400
+
+    # ── 读取过滤参数 ────────────────────────────────────────────────────────────
+    def _f(key, default):
+        v = request.args.get(key, "")
+        try: return float(v)
+        except: return default
+
+    slope_min    = _f("slope_min",    1.5)
+    slope_top    = _f("slope_top",    1.0)
+    sigma_max    = _f("sigma_max",    6.0)
+    slope_natr   = _f("slope_natr",   2.0)
+    mkt_min      = _f("mkt_min",      500.0)
+    mkt_max      = _f("mkt_max",      float("inf"))
+    excl_loss    = request.args.get("excl_loss",    "1") != "0"
+    excl_reverse = request.args.get("excl_reverse", "1") != "0"
+    penalty_20w  = request.args.get("penalty_20w",  "1") != "0"
+
+    # 斜率 top N% 截止值
+    slopes   = sorted(r.get("trend_slope", 0) for r in results)
+    cutoff_i = int(len(slopes) * (1 - slope_top / 100))
+    slope_max = slopes[max(0, cutoff_i)] if slopes else float("inf")
+
+    # ── 过滤 ────────────────────────────────────────────────────────────────────
+    def _pass(s):
+        sl  = s.get("trend_slope", 0)
+        sig = s.get("sigma_res", 999)
+        mkt = s.get("市值亿", 0)
+        pe  = s.get("pe", 0) or 0
+        atr = s.get("atr_50d", 0)
+        h50 = s.get("max_high_50d", 0)
+        lc  = s.get("last_close", 0)
+        is_etf = s.get("is_etf", False)
+
+        if sl < slope_min:                                         return False
+        if sl > slope_max:                                         return False
+        if atr > 0 and sl > slope_natr * atr:                     return False
+        if sig > sigma_max:                                        return False
+        if not is_etf:
+            if mkt < mkt_min:                                      return False
+            if mkt_max < float("inf") and mkt > mkt_max:          return False
+            if excl_loss and pe <= 0:                              return False
+        if excl_reverse and h50 and lc and atr:
+            dd = (1 - lc / h50) * 100
+            if dd > 2 * atr:                                       return False
+        return True
+
+    filtered = [s for s in results if _pass(s)]
+
+    # ── 评分 ────────────────────────────────────────────────────────────────────
+    def base_score(s):
+        sl  = s.get("trend_slope", 0)
+        sig = s.get("sigma_res", 0)
+        if sl <= 0 or sig <= 0: return 0.0
+        return (abs(sl) ** 1.1) * max(0.0, 8.0 - sig)
+
+    def momentum_penalty(s):
+        h50 = s.get("max_high_50d", 0)
+        lc  = s.get("last_close", 0)
+        atr = s.get("atr_50d", 0)
+        if not h50 or not lc or not atr: return 1.0
+        dd = (1 - lc / h50) * 100
+        return 0.85 if dd > atr else 1.0
+
+    def overext_penalty(s):
+        if not penalty_20w: return 1.0
+        r = (s.get("ret20w") or 0) / 100
+        if r > 0.60: return 0.75
+        if r > 0.40: return 0.85
+        if r > 0.25: return 0.95
+        return 1.0
+
+    for s in filtered:
+        s["_score"] = base_score(s) * momentum_penalty(s) * overext_penalty(s)
+
+    filtered.sort(key=lambda s: -s["_score"])
+
+    # ── 回撤标注 ────────────────────────────────────────────────────────────────
+    def dd_warn(s):
+        h50 = s.get("max_high_50d", 0)
+        lc  = s.get("last_close", 0)
+        atr = s.get("atr_50d", 0)
+        if not h50 or not lc or not atr: return ""
+        dd = (1 - lc / h50) * 100
+        if dd > 3 * atr: return "⚠️"
+        if dd > 2 * atr: return "⚡⚡"
+        if dd > atr:     return "⚡"
+        return ""
+
+    out = []
+    for i, s in enumerate(filtered, 1):
+        h50 = s.get("max_high_50d", 0)
+        lc  = s.get("last_close", 0)
+        dd  = round((1 - lc / h50) * 100, 1) if h50 and lc else 0.0
+        out.append({
+            "rank":       i,
+            "代码":       s.get("代码"),
+            "名称":       s.get("名称"),
+            "市值亿":     s.get("市值亿"),
+            "斜率":       s.get("trend_slope"),
+            "sigma_res":  s.get("sigma_res"),
+            "得分":       round(s["_score"], 2),
+            "PE":         s.get("pe"),
+            "ATR%":       s.get("atr_50d"),
+            "回撤%":      dd,
+            "今日涨跌":   s.get("涨跌幅"),
+            "ret20w":     s.get("ret20w"),
+            "警示":       dd_warn(s),
+            "行业":       s.get("industry_board"),
+        })
+
+    return jsonify({"ok": True, "done": done, "total": len(results),
+                    "filtered": len(out), "results": out})
+
+
 @app.route("/api/trend/progress")
 def trend_progress():
     with _trend_lock:
