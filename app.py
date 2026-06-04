@@ -1674,6 +1674,57 @@ _trend_scan: dict = {
 _trend_lock = threading.Lock()
 
 
+def _fetch_us_weekly_closes_scan(ticker: str, n: int = 22) -> list[float]:
+    """Return last n weekly 后复权 closes for US trend scan. Cached 2 h."""
+    ck = f"us_wkly_scan_{ticker}"
+    cached = _get(ck, ttl=7200)
+    if cached:
+        return cached[-n:]
+    try:
+        import yfinance as yf
+        raw = yf.Ticker(ticker).history(period="2y", interval="1wk",
+                                         auto_adjust=False, actions=True)
+        if raw.empty:
+            return []
+        K = _us_hfq_k_cached(ticker)
+        closes = [round(float(c) * K, 4) for c in raw["Adj Close"]]
+        _set(ck, closes)
+        return closes[-n:]
+    except Exception:
+        return []
+
+
+def _fetch_us_recent_highs_scan(ticker: str):
+    """Return (max_h50, max_h50, last_close, atr_50d, chg_live) for a US ticker."""
+    ck = f"us_rh_scan_{ticker}"
+    cached = _get(ck, ttl=7200)
+    if cached:
+        return tuple(cached)
+    try:
+        import yfinance as yf
+        t   = yf.Ticker(ticker)
+        K   = _us_hfq_k_cached(ticker)
+        raw = t.history(period="3mo", interval="1d", auto_adjust=False, actions=False)
+        if raw.empty or len(raw) < 5:
+            return 0.0, 0.0, 0.0, 0.0, None
+        closes   = [float(c) * K for c in raw["Adj Close"]]
+        max_h50  = max(closes[-50:]) if len(closes) >= 50 else max(closes)
+        last_c   = closes[-1]
+        rets     = [abs(closes[i] / closes[i-1] - 1) * 100 for i in range(1, len(closes))]
+        atr      = round(sum(rets[-50:]) / min(len(rets), 50), 2) if rets else 0.0
+        chg_live = None
+        try:
+            fi       = t.fast_info
+            chg_live = round(float(fi.get("regularMarketChangePercent") or 0), 2)
+        except Exception:
+            pass
+        res = [round(max_h50, 4), round(max_h50, 4), round(last_c, 4), atr, chg_live]
+        _set(ck, res)
+        return tuple(res)
+    except Exception:
+        return 0.0, 0.0, 0.0, 0.0, None
+
+
 def _run_trend_scan(stock_list: list[dict]) -> None:
     with _trend_lock:
         if _trend_scan["running"]:
@@ -1685,44 +1736,47 @@ def _run_trend_scan(stock_list: list[dict]) -> None:
         tc     = stock.get("_tc", ("sh" if code.startswith("6") else "sz") + code)
         is_etf = bool(stock.get("is_etf"))
         is_hk  = bool(stock.get("is_hk"))
+        is_us  = bool(stock.get("is_us"))
         try:
-            n_weeks  = 7 if is_etf else 10   # ETF: shorter window for fairer comparison
-            closes_all = _fetch_weekly_closes(tc, n=22)   # always fetch 22 for ret20
+            n_weeks = 7 if is_etf else 10
+            if is_us:
+                closes_all = _fetch_us_weekly_closes_scan(code, n=22)
+            else:
+                closes_all = _fetch_weekly_closes(tc, n=22)
             if len(closes_all) < 5:
                 return None
-            closes = closes_all[-n_weeks:]    # regression window
+            closes = closes_all[-n_weeks:]
             n_pts  = len(closes)
             x = np.arange(n_pts, dtype=float)
             y = np.log(np.array(closes, dtype=float))
             slope, b_intercept, r2 = _ols(x, y)
 
-            # σ_res: std dev of log-price residuals — slope-independent trend quality
-            y_pred     = slope * x + b_intercept
-            sigma_res  = round(float(np.std(y - y_pred)) * 100, 3)   # in %
+            y_pred    = slope * x + b_intercept
+            sigma_res = round(float(np.std(y - y_pred)) * 100, 3)
 
-            # Normalised closes for sparkline (divide by first close → starts at 1.0)
-            p0 = closes[0]
+            p0   = closes[0]
             norm = [round(p / p0, 4) for p in closes]
 
-            # Industry: ETFs use pre-set category; HK stocks try PUBLISHNAME; A-shares normal
             if is_etf:
                 industry = stock.get("industry_board", "ETF")
+            elif is_us:
+                industry = stock.get("industry_board", "") or "美股"
             elif is_hk:
                 industry = stock.get("industry_board", "") or "港股其他"
             else:
                 industry = _fetch_industry_board(code)
 
-            max_h50, max_h50b, last_cls, atr_50d, chg_live = _fetch_recent_highs(tc)
+            if is_us:
+                max_h50, max_h50b, last_cls, atr_50d, chg_live = _fetch_us_recent_highs_scan(code)
+            else:
+                max_h50, max_h50b, last_cls, atr_50d, chg_live = _fetch_recent_highs(tc)
 
-            # 20-week return (for overextension penalty in UI)
             ret20w = None
             if len(closes_all) >= 20:
                 c0, c1 = closes_all[-20], closes_all[-1]
                 if c0 > 0:
                     ret20w = round((c1 / c0 - 1) * 100, 1)
 
-            # Today's change %：优先用 _fetch_recent_highs 中实时行情拿到的值，
-            # 避免使用缓存 24h 的股票列表中的昨日数据。
             chg_today = chg_live if chg_live is not None else stock.get("涨跌幅")
 
             return {
@@ -1732,6 +1786,7 @@ def _run_trend_scan(stock_list: list[dict]) -> None:
                 "pe":            stock.get("pe", 0.0),
                 "is_etf":        is_etf,
                 "is_hk":         is_hk,
+                "is_us":         is_us,
                 "_tc":           tc,
                 "trend_slope":   round(slope * 100, 2),
                 "trend_r2":      round(r2 * 100, 1),
@@ -1751,8 +1806,10 @@ def _run_trend_scan(stock_list: list[dict]) -> None:
             with _trend_lock:
                 _trend_scan["idx"] += 1
 
-    # 4 workers: polite to Tencent's fqkline API; avoids rate-limit 429s
-    with ThreadPoolExecutor(max_workers=4) as ex:
+    # US: more workers (yfinance handles concurrency); A/HK: 4 to avoid Tencent rate-limit
+    is_us_scan = any(s.get("is_us") for s in stock_list[:3])
+    n_workers  = 8 if is_us_scan else 4
+    with ThreadPoolExecutor(max_workers=n_workers) as ex:
         for result in ex.map(process, stock_list):
             if result:
                 with _trend_lock:
@@ -2627,7 +2684,24 @@ def _build_trend_stock_list(market: str = "a") -> dict:
 
     market='a'  → A-shares ≥100亿 + curated ETFs  (cached 24 h)
     market='hk' → HK main-board stocks only        (cached 24 h)
+    market='us' → S&P500 + supplements ≥300亿USD   (cached 1 h)
     """
+    if market == "us":
+        cache_key = "trend_stock_list_us_v1"
+        cached = _get(cache_key, ttl=3600)
+        if cached:
+            return cached
+        us = _fetch_us_stocks()
+        for s in us:
+            s["is_us"]  = True
+            s["is_hk"]  = False
+            s["is_etf"] = False
+            s.setdefault("pe", 0.0)
+        payload = {"success": True, "data": us, "total": len(us)}
+        if us:
+            _set(cache_key, payload)
+        return payload
+
     if market == "hk":
         cache_key = "trend_stock_list_hk_v1"
         cached = _get(cache_key, ttl=86400)

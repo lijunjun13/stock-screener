@@ -4376,9 +4376,10 @@ function renderTrendResults() {
   const _wlCodeSet = new Set(_wlStocks.map(w => w.code));
 
   const _passFilter = s => {
-    // 市场过滤：A股（含ETF）/ 港股
-    if (_activeMarket === 'a'  &&  s.is_hk) return false;
-    if (_activeMarket === 'hk' && !s.is_hk) return false;
+    // 市场过滤：A股（含ETF）/ 港股 / 美股
+    if (_activeMarket === 'a'  &&  (s.is_hk || s.is_us)) return false;
+    if (_activeMarket === 'hk' && (!s.is_hk || s.is_us)) return false;
+    if (_activeMarket === 'us' && !s.is_us) return false;
     if (_closes52wCache.get(s.代码)?.closes_52w === false) return false;
     if (!isNaN(fSlopeMin) && s.trend_slope < fSlopeMin) return false;
     if (s.trend_slope > slopeMax)                        return false;
@@ -4404,8 +4405,9 @@ function renderTrendResults() {
 
   // 自选股豁免斜率/估值等过滤，但必须符合当前市场模式（A股/港股）
   const _marketOk = s =>
-    !(_activeMarket === 'a'  &&  s.is_hk) &&
-    !(_activeMarket === 'hk' && !s.is_hk);
+    !(_activeMarket === 'a'  &&  (s.is_hk || s.is_us)) &&
+    !(_activeMarket === 'hk' && (!s.is_hk || s.is_us)) &&
+    !(_activeMarket === 'us' && !s.is_us);
   const wlPinned = trendAllResults.filter(s => _wlCodeSet.has(s.代码) && _marketOk(s));
   let rows = [
     ...wlPinned,
