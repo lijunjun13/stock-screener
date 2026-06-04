@@ -1456,6 +1456,8 @@ function drawChart(d, name, code) {
 
   // ── 销毁旧实例 ─────────────────────────────────────────────────────────────
   const divEl = document.getElementById('chartDiv');
+  const _oldOverlay = document.getElementById('lwcPhaseOverlay');
+  if (_oldOverlay) { if (_oldOverlay._unsubscribe) _oldOverlay._unsubscribe(); _oldOverlay.remove(); }
   if (_lwcLTChart)   { try { _lwcLTChart.remove();   } catch(_) {} _lwcLTChart   = null; }
   if (_lwcLTPEChart) { try { _lwcLTPEChart.remove();  } catch(_) {} _lwcLTPEChart = null; }
   divEl.innerHTML = '';
@@ -2576,10 +2578,96 @@ function _midDate(d1, d2) {
   return new Date((t1 + t2) / 2).toISOString().slice(0, 10);
 }
 
+// ── Draw phase bands on LWC (long-term chart) via HTML overlay ───────────────
+function _drawPhaseBandsLWC(phases) {
+  if (!_lwcLTChart) return;
+  const cd = document.getElementById('chartDiv');
+  if (!cd) return;
+
+  // Find the price panel div (first child div of chartDiv)
+  const priceDivEl = cd.querySelector('div');
+  if (!priceDivEl) return;
+
+  // Clean up old overlay and subscriptions
+  const old = document.getElementById('lwcPhaseOverlay');
+  if (old) {
+    if (old._unsubscribe) old._unsubscribe();
+    old.remove();
+  }
+
+  const overlay = document.createElement('div');
+  overlay.id = 'lwcPhaseOverlay';
+  overlay.style.cssText = 'position:absolute;top:0;left:0;right:0;bottom:0;pointer-events:none;overflow:hidden;';
+  priceDivEl.style.position = 'relative';
+  priceDivEl.appendChild(overlay);
+
+  const today = new Date().toISOString().slice(0, 10);
+
+  function updateBands() {
+    overlay.innerHTML = '';
+    const ts = _lwcLTChart.timeScale();
+    const W  = priceDivEl.clientWidth;
+
+    phases.forEach((phase, i) => {
+      if (!phase.startDate) return;
+      const { solid, fill } = PHASE_PALETTE[i % PHASE_PALETTE.length];
+
+      const x0Date = phase.startDate + '-01';
+      const x1Date = phase.endDate ? phase.endDate + '-28' : today;
+
+      let x0 = ts.timeToCoordinate(x0Date);
+      let x1 = ts.timeToCoordinate(x1Date);
+
+      // If both are offscreen, skip
+      if (x0 === null && x1 === null) return;
+
+      const left  = Math.max(x0 ?? 0, 0);
+      const right = Math.min(x1 ?? W, W);
+      if (right <= left) return;
+
+      // Background band
+      const band = document.createElement('div');
+      band.style.cssText = `position:absolute;top:0;bottom:0;left:${left}px;width:${right - left}px;background:${fill};`;
+      overlay.appendChild(band);
+
+      // Vertical divider at phase start (skip first)
+      if (i > 0 && x0 !== null && x0 > 0 && x0 < W) {
+        const line = document.createElement('div');
+        line.style.cssText = `position:absolute;top:0;bottom:0;left:${Math.round(x0)}px;width:1px;background:${solid};opacity:0.45;`;
+        overlay.appendChild(line);
+      }
+
+      // Label at top center of visible band
+      const midX = (left + right) / 2;
+      const lbl = document.createElement('div');
+      lbl.style.cssText = `
+        position:absolute;top:4px;left:${midX}px;transform:translateX(-50%);
+        color:${solid};font-size:11px;font-weight:700;white-space:nowrap;
+        background:rgba(13,17,23,0.82);padding:2px 6px;
+        border:1px solid ${solid}55;border-radius:3px;`;
+      lbl.textContent = `阶段${phase.num}`;
+      overlay.appendChild(lbl);
+    });
+  }
+
+  updateBands();
+  _lwcLTChart.timeScale().subscribeVisibleTimeRangeChange(updateBands);
+  overlay._unsubscribe = () => _lwcLTChart?.timeScale().unsubscribeVisibleTimeRangeChange(updateBands);
+}
+
 // ── Draw phase bands + labels on the Plotly chart ────────────────────────────
 function drawPhaseBands(phases) {
   const cd = document.getElementById('chartDiv');
-  if (!cd || !cd.layout) return Promise.resolve();
+  if (!cd) return Promise.resolve();
+
+  // LWC path (长期趋势 chart)
+  if (_lwcLTChart) {
+    _drawPhaseBandsLWC(phases);
+    return Promise.resolve();
+  }
+
+  // Plotly path
+  if (!cd.layout) return Promise.resolve();
   // Keep non-phase shapes / annotations
   const shapes = (cd.layout.shapes      || []).filter(s => !s._isPhase);
   const anns   = (cd.layout.annotations || []).filter(a => !a._isPhase);
@@ -2689,7 +2777,62 @@ function applyPhaseAnnotations(text) {
 // ── Phase hover tooltip ───────────────────────────────────────────────────────
 function setupPhaseHover(phases) {
   const cd = document.getElementById('chartDiv');
-  if (!cd || typeof cd.on !== 'function') return;
+  if (!cd) return;
+
+  // ── LWC path (长期趋势) ────────────────────────────────────────────────────
+  if (_lwcLTChart) {
+    const overlay = document.getElementById('lwcPhaseOverlay');
+    const target  = overlay || cd;
+
+    if (target._phaseHoverFns) {
+      target.removeEventListener('mousemove', target._phaseHoverFns.move);
+      target.removeEventListener('mouseleave', target._phaseHoverFns.leave);
+    }
+
+    let _activePNum = null, _hideTimer = null;
+
+    function scheduleHide() {
+      clearTimeout(_hideTimer);
+      _hideTimer = setTimeout(() => {
+        document.getElementById('phaseHoverTip')?.remove();
+        _activePNum = null;
+      }, 150);
+    }
+
+    function onMove(e) {
+      clearTimeout(_hideTimer);
+      const rect = cd.getBoundingClientRect();
+      const localX = e.clientX - rect.left;
+      const ts   = _lwcLTChart.timeScale();
+      const time = ts.coordinateToTime(localX);  // "YYYY-MM-DD" or null
+      if (!time) { scheduleHide(); return; }
+      const ym = String(time).slice(0, 7);
+      const phase = phases.find(p =>
+        ym >= (p.startDate || '0000-01') && ym <= (p.endDate || '2099-12')
+      );
+      if (!phase) { scheduleHide(); return; }
+
+      const i     = phases.indexOf(phase);
+      const color = PHASE_PALETTE[i % PHASE_PALETTE.length].solid;
+      if (_activePNum !== phase.num) {
+        _activePNum = phase.num;
+        document.getElementById('phaseHoverTip')?.remove();
+        document.body.appendChild(_buildPhaseTip(phase, color));
+      }
+      _placePhaseTip(e.clientX, e.clientY);
+    }
+
+    // attach to the price panel so pointer-events work (overlay is pointer-events:none)
+    const priceDivEl = cd.querySelector('div') || cd;
+    priceDivEl.style.pointerEvents = 'auto';
+    priceDivEl.addEventListener('mousemove', onMove);
+    priceDivEl.addEventListener('mouseleave', scheduleHide);
+    priceDivEl._phaseHoverFns = { move: onMove, leave: scheduleHide };
+    return;
+  }
+
+  // ── Plotly path ───────────────────────────────────────────────────────────
+  if (typeof cd.on !== 'function') return;
 
   // Tear down previous listeners
   if (cd._phaseHoverFns) {
@@ -2703,7 +2846,6 @@ function setupPhaseHover(phases) {
   let _hideTimer  = null;
   let _mouseX = 0, _mouseY = 0;
 
-  // ── track mouse position so we can place the tooltip ─────────────────────
   function onMove(e) { _mouseX = e.clientX; _mouseY = e.clientY; }
 
   function scheduleHide() {
@@ -2714,23 +2856,17 @@ function setupPhaseHover(phases) {
     }, 150);
   }
 
-  // ── Plotly hover event delivers the exact x-date of the hovered point ────
   cd.on('plotly_hover', function(data) {
     clearTimeout(_hideTimer);
     const pt = data?.points?.[0];
     if (!pt) return;
-
-    // pt.x is the date string of the hovered data point
-    const ym = String(pt.x).slice(0, 7);   // "YYYY-MM"
-
+    const ym = String(pt.x).slice(0, 7);
     const phase = phases.find(p =>
       ym >= (p.startDate || '0000-01') && ym <= (p.endDate || '2099-12')
     );
     if (!phase) { scheduleHide(); return; }
-
     const i     = phases.indexOf(phase);
     const color = PHASE_PALETTE[i % PHASE_PALETTE.length].solid;
-
     if (_activePNum !== phase.num) {
       _activePNum = phase.num;
       document.getElementById('phaseHoverTip')?.remove();
@@ -2740,7 +2876,6 @@ function setupPhaseHover(phases) {
   });
 
   cd.on('plotly_unhover', scheduleHide);
-
   cd.addEventListener('mousemove', onMove);
   cd.addEventListener('mouseleave', scheduleHide);
   cd._phaseHoverFns = { move: onMove, leave: scheduleHide };
@@ -2815,7 +2950,13 @@ async function runPhaseAnalysis(code) {
 
   let imageData;
   try {
-    imageData = await Plotly.toImage('chartDiv', { format: 'png', width: 960, height: 520 });
+    if (_lwcLTChart) {
+      // LWC chart: use native takeScreenshot API
+      const canvas = _lwcLTChart.takeScreenshot();
+      imageData = canvas.toDataURL('image/png');
+    } else {
+      imageData = await Plotly.toImage('chartDiv', { format: 'png', width: 960, height: 520 });
+    }
   } catch (e) {
     content.innerHTML = `<div style="color:var(--red);font-size:.8rem">⚠ 截图失败：${e.message}</div>`;
     btn.disabled = false; btn.style.opacity = '1'; btn.textContent = '重试';
