@@ -1536,6 +1536,46 @@ def index():
     return render_template("index.html")
 
 
+@app.route("/api/etf_quotes")
+def etf_quotes():
+    """返回 _MAJOR_ETFS 列表加实时行情（价格、涨跌幅、成交量）。"""
+    tc_list = [e["_tc"] for e in _MAJOR_ETFS]
+    quotes: dict = {}
+    try:
+        r = _sess.get(f"https://qt.gtimg.cn/q={','.join(tc_list)}", timeout=8)
+        r.raise_for_status()
+        for line in r.text.strip().split(";\n"):
+            if '="' not in line: continue
+            var   = line.split("=")[0].strip()
+            tc    = var[2:] if var.startswith("v_") else var
+            inner = line.split('="', 1)[1].rstrip('";')
+            flds  = inner.split("~")
+            if len(flds) >= 10:
+                price = float(flds[3] or 0)
+                prev  = float(flds[4] or 0)
+                vol   = float(flds[6] or 0)   # 手
+                amt   = float(flds[37] or 0) if len(flds) > 37 else 0  # 万元
+                chg   = round((price - prev) / prev * 100, 2) if prev else 0.0
+                quotes[tc] = {"price": price, "chg_pct": chg, "volume": vol, "amount": amt}
+    except Exception:
+        pass
+
+    result = []
+    for e in _MAJOR_ETFS:
+        q = quotes.get(e["_tc"], {})
+        result.append({
+            "代码":   e["代码"],
+            "名称":   e["名称"],
+            "类别":   e["industry_board"],
+            "_tc":    e["_tc"],
+            "价格":   q.get("price", 0),
+            "涨跌幅": q.get("chg_pct", 0),
+            "成交量": q.get("volume", 0),
+            "成交额": q.get("amount", 0),
+        })
+    return jsonify({"success": True, "data": result})
+
+
 @app.route("/mobile")
 def mobile():
     return render_template("mobile.html")

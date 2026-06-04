@@ -44,6 +44,15 @@
   .market-tab:hover:not(.active):not(.disabled) { background:rgba(255,255,255,.05); color:var(--text); }
   .market-tab.disabled { opacity:.35; cursor:not-allowed; }
   .market-tab .soon { font-size:.6rem; vertical-align:super; color:#e3b341; margin-left:3px; }
+  .sub-tabs { display:flex; gap:0; margin:10px 0 0; border-bottom:1px solid var(--border); }
+  .sub-tab {
+    padding:7px 20px; font-size:.82rem; font-weight:600; cursor:pointer;
+    background:transparent; color:var(--muted); border:none;
+    border-bottom:2px solid transparent; margin-bottom:-1px;
+    transition:color .12s, border-color .12s;
+  }
+  .sub-tab.active { color:var(--accent); border-bottom-color:var(--accent); }
+  .sub-tab:hover:not(.active) { color:var(--text); }
 
   /* stats strip */
   .stats-strip {
@@ -492,7 +501,13 @@
   </div>
 </div>
 
-<div class="tbl-wrap">
+<!-- A股子tab：个股 / ETF -->
+<div class="sub-tabs" id="aSubTabs">
+  <button class="sub-tab active" data-sub="stock" onclick="setSubTab('stock')">个股</button>
+  <button class="sub-tab"        data-sub="etf"   onclick="setSubTab('etf')">ETF</button>
+</div>
+
+<div class="tbl-wrap" id="stockTblWrap">
   <table>
     <thead>
       <tr>
@@ -507,6 +522,26 @@
     </thead>
     <tbody id="tBody">
       <tr class="loading-row"><td colspan="7"><div class="spin"></div><div style="margin-top:12px;color:var(--muted)">正在获取 A 股数据…</div></td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ETF 列表 -->
+<div class="tbl-wrap" id="etfTblWrap" style="display:none">
+  <table>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>代码</th>
+        <th>名称</th>
+        <th>类别</th>
+        <th>最新价</th>
+        <th>涨跌幅</th>
+        <th>成交额（万元）</th>
+      </tr>
+    </thead>
+    <tbody id="etfBody">
+      <tr class="loading-row"><td colspan="7"><div class="spin"></div></td></tr>
     </tbody>
   </table>
 </div>
@@ -3502,18 +3537,90 @@ let trendAllResults  = [];
 let trendPollTimer   = null;
 let _activeMarket    = 'a';  // 'a' | 'hk' | 'us'
 
+let _activeSubTab = 'stock';  // 'stock' | 'etf'
+
 function setMarket(m) {
-  if (m === 'us') return;   // 美股暂未支持
+  if (m === 'us') return;
   _activeMarket = m;
   document.querySelectorAll('.market-tab').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.market === m);
   });
-  // 趋势交易：重新渲染（过滤到对应市场）
+  // 子tab只在A股显示
+  const subTabs = document.getElementById('aSubTabs');
+  if (subTabs) subTabs.style.display = (m === 'a') ? '' : 'none';
+  // A股：恢复上次子tab；港股：直接显示个股表（港股无ETF子tab）
+  if (m === 'a') {
+    setSubTab(_activeSubTab, false);
+  } else {
+    document.getElementById('stockTblWrap').style.display = '';
+    document.getElementById('etfTblWrap').style.display   = 'none';
+  }
+  // 趋势交易重新渲染
   if (trendAllResults.length) renderTrendResults();
-  // 选股分析只支持 A股，港股时禁用/提示
+  // 选股分析只支持A股
   const screenBtn = document.getElementById('btnScreen');
-  const trendBtn  = document.getElementById('btnTrendScan');
   if (screenBtn) screenBtn.disabled = (m !== 'a');
+}
+
+function setSubTab(sub, doLoad = true) {
+  _activeSubTab = sub;
+  document.querySelectorAll('.sub-tab').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.sub === sub);
+  });
+  const showStock = sub === 'stock';
+  document.getElementById('stockTblWrap').style.display = showStock ? '' : 'none';
+  document.getElementById('etfTblWrap').style.display   = showStock ? 'none' : '';
+  if (!showStock && doLoad) loadEtfList();
+}
+
+let _etfLoaded = false;
+async function loadEtfList() {
+  if (_etfLoaded) return;
+  document.getElementById('etfBody').innerHTML =
+    `<tr class="loading-row"><td colspan="7"><div class="spin"></div></td></tr>`;
+  try {
+    const r = await fetch('/api/etf_quotes');
+    const d = await r.json();
+    if (!d.success) throw new Error('接口失败');
+    _etfLoaded = true;
+    renderEtfTable(d.data);
+  } catch(e) {
+    document.getElementById('etfBody').innerHTML =
+      `<tr><td colspan="7" style="text-align:center;padding:30px;color:var(--red)">加载失败：${e.message}</td></tr>`;
+  }
+}
+
+function renderEtfTable(data) {
+  // 按类别分组，组内按涨跌幅排序
+  const catOrder = ['宽基ETF','行业ETF','大宗商品ETF'];
+  data.sort((a, b) => {
+    const ci = catOrder.indexOf(a.类别) - catOrder.indexOf(b.类别);
+    return ci !== 0 ? ci : b.涨跌幅 - a.涨跌幅;
+  });
+  let lastCat = '';
+  const rows = data.map((e, i) => {
+    const chg   = e.涨跌幅 || 0;
+    const chgCls = chg >= 0 ? 'pos' : 'neg';
+    const sign   = chg >= 0 ? '+' : '';
+    const amt    = e.成交额 > 0 ? `${(e.成交额 / 10000).toFixed(1)}亿` : '—';
+    let catRow = '';
+    if (e.类别 !== lastCat) {
+      lastCat = e.类别;
+      catRow = `<tr style="background:rgba(255,255,255,.03)">
+        <td colspan="7" style="padding:6px 14px;font-size:.72rem;color:var(--muted);font-weight:600;letter-spacing:.05em">${e.类别}</td>
+      </tr>`;
+    }
+    return catRow + `<tr onclick="openModal('${e.代码}','${e.名称}')" style="cursor:pointer">
+      <td style="color:var(--muted);font-size:.75rem">${i+1}</td>
+      <td class="code">${e.代码}</td>
+      <td>${e.名称}</td>
+      <td style="color:var(--muted);font-size:.78rem">${e.类别}</td>
+      <td>${e.价格 > 0 ? e.价格.toFixed(3) : '—'}</td>
+      <td class="${chgCls}">${e.价格 > 0 ? sign + chg.toFixed(2) + '%' : '—'}</td>
+      <td style="color:var(--muted)">${amt}</td>
+    </tr>`;
+  }).join('');
+  document.getElementById('etfBody').innerHTML = rows;
 }
 let _liveChgTimer    = null;  // 盘中实时涨跌幅刷新定时器
 
