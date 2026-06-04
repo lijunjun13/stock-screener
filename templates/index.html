@@ -1327,7 +1327,6 @@ function _drawIntraday(divId, data, isHk = false, dailyRows = null, isUs = false
     bottomLineColor:  '#3fb950', bottomFillColor1: 'rgba(63,185,80,0.04)', bottomFillColor2: 'rgba(63,185,80,0.25)',
     lineWidth: 1.5, priceLineVisible: false, lastValueVisible: false,
   });
-  baseline.setData(prices.map((p, i) => ({ time: toSec(times[i]), value: p })));
 
   // 昨收虚线
   baseline.createPriceLine({ price: ref, color: 'rgba(200,200,200,0.35)', lineWidth: 1,
@@ -1338,7 +1337,6 @@ function _drawIntraday(divId, data, isHk = false, dailyRows = null, isUs = false
     priceScaleId: 'right', color: '#e3a148', lineWidth: 1.4,
     priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
   });
-  vwapLine.setData(vwap.map((v, i) => ({ time: toSec(times[i]), value: v })));
 
   // 止损带：_computeAtrBands 末端值 × HFQ→实际价比例
   // 用 LineSeries（参与 autoscale）而非 createPriceLine，
@@ -1380,12 +1378,24 @@ function _drawIntraday(divId, data, isHk = false, dailyRows = null, isUs = false
   // Build session end timestamp for this market
   const _sessionEnd = toSec((isHk || isUs) ? '16:00' : '15:00');
 
-  // Anchor phantom point at session-end so LWC always extends the axis to close
+  // Whitespace anchor: { time } with no value → extends time axis without drawing anything
+  const _wsAnchor = { time: _sessionEnd };
+
+  // Set baseline + vwap data with whitespace anchor
+  // Whitespace = { time } with no value → LWC extends the time axis but draws nothing there
+  const baselineData = prices.map((p, i) => ({ time: toSec(times[i]), value: p }));
+  if (!baselineData.length || baselineData[baselineData.length - 1].time < _sessionEnd)
+    baselineData.push(_wsAnchor);
+  baseline.setData(baselineData);
+
+  const vwapData = vwap.map((v, i) => ({ time: toSec(times[i]), value: v }));
+  if (!vwapData.length || vwapData[vwapData.length - 1].time < _sessionEnd)
+    vwapData.push(_wsAnchor);
+  vwapLine.setData(vwapData);
+
   const pctData = prices.map((p, i) => ({ time: toSec(times[i]), value: ref > 0 ? (p/ref-1)*100 : 0 }));
-  const lastPct  = pctData.length ? pctData[pctData.length - 1].value : 0;
-  if (!pctData.length || pctData[pctData.length - 1].time < _sessionEnd)
-    pctData.push({ time: _sessionEnd, value: lastPct });
-  pctLine.setData(pctData);
+  const needsAnchor = !pctData.length || pctData[pctData.length - 1].time < _sessionEnd;
+  pctLine.setData(needsAnchor ? [...pctData, _wsAnchor] : pctData);
 
   // 成交量（底部）
   const volSeries = chart.addHistogramSeries({
