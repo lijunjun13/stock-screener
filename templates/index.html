@@ -3483,8 +3483,53 @@ _wlRefreshTimer = setInterval(wlLoad, 30000);
 // TREND TRADING SCREENER
 // ═══════════════════════════════════════════════════════════════════════════
 
-let trendAllResults = [];
-let trendPollTimer  = null;
+let trendAllResults  = [];
+let trendPollTimer   = null;
+let _liveChgTimer    = null;  // 盘中实时涨跌幅刷新定时器
+
+// 判断当前是否在 A 股交易时间（09:30–15:00 CST）
+function _isTradingHours() {
+  const now = new Date();
+  // CST = UTC+8
+  const cst = new Date(now.getTime() + (8 * 60 + now.getTimezoneOffset()) * 60000);
+  const h = cst.getHours(), m = cst.getMinutes();
+  const mins = h * 60 + m;
+  const day = cst.getDay(); // 0=Sun,6=Sat
+  if (day === 0 || day === 6) return false;
+  return (mins >= 9 * 60 + 25) && (mins <= 15 * 60 + 5);
+}
+
+async function refreshTrendLiveChg() {
+  if (!trendAllResults.length) return;
+  const tcCodes = trendAllResults.map(s => s._tc).filter(Boolean);
+  if (!tcCodes.length) return;
+  try {
+    const resp = await fetch('/api/trend/live_quotes', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ tc_codes: tcCodes }),
+    });
+    const chgMap = await resp.json();
+    let updated = false;
+    for (const s of trendAllResults) {
+      if (s._tc && chgMap[s._tc] != null) {
+        s['涨跌幅'] = chgMap[s._tc];
+        updated = true;
+      }
+    }
+    if (updated) renderTrendResults();
+  } catch(e) {}
+}
+
+function _scheduleLiveChg() {
+  clearTimeout(_liveChgTimer);
+  if (_isTradingHours()) {
+    refreshTrendLiveChg();
+    _liveChgTimer = setTimeout(_scheduleLiveChg, 60000); // 每60秒刷新一次
+  } else {
+    // 非交易时间：每5分钟检查一次是否进入交易时段
+    _liveChgTimer = setTimeout(_scheduleLiveChg, 300000);
+  }
+}
 let trendSortKey    = 'score';
 let trendSortDir    = 'desc';
 
@@ -3615,6 +3660,7 @@ function openTrend() {
         if (Date.now() - obj.ts < 24 * 3600 * 1000 && obj.data && obj.data.length) {
           trendAllResults = obj.data;
           renderTrendResults();
+          _scheduleLiveChg(); // 从缓存加载后也立即刷新实时涨跌幅
           const age = Math.round((Date.now() - obj.ts) / 60000);
           document.getElementById('trendProgressLabel').textContent = `上次完整扫描（${age}分钟前）`;
           const btn = document.getElementById('btnTrendScan');
@@ -4121,6 +4167,7 @@ function pollTrendProgress() {
         if (d.done) try {
           localStorage.setItem('trend_results_v2', JSON.stringify({ts: Date.now(), data: trendAllResults}));
         } catch(e) {}
+        _scheduleLiveChg(); // 扫描完成后立即刷新一次，并开启定时器
       } else if (d.running) {
         trendPollTimer = setTimeout(pollTrendProgress, 1500);
       }

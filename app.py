@@ -2344,6 +2344,37 @@ def trend_closes52w():
     return jsonify(result)
 
 
+@app.route("/api/trend/live_quotes", methods=["POST"])
+def trend_live_quotes():
+    """批量从腾讯实时行情拉取涨跌幅，用于盘中刷新趋势扫描结果。"""
+    body     = request.get_json(silent=True) or {}
+    tc_codes = body.get("tc_codes", [])
+    if not tc_codes:
+        return jsonify({})
+    result = {}
+    BATCH  = 200
+    for i in range(0, len(tc_codes), BATCH):
+        batch = tc_codes[i : i + BATCH]
+        try:
+            r = _sess.get(f"https://qt.gtimg.cn/q={','.join(batch)}", timeout=8)
+            r.raise_for_status()
+            for line in r.text.strip().split(";\n"):
+                if '="' not in line:
+                    continue
+                var   = line.split("=")[0].strip()
+                tc    = var[2:] if var.startswith("v_") else var
+                inner = line.split('="', 1)[1].rstrip('";')
+                flds  = inner.split("~")
+                if len(flds) >= 5:
+                    price = float(flds[3] or 0)
+                    prev  = float(flds[4] or 0)
+                    if price > 0 and prev > 0:
+                        result[tc] = round((price - prev) / prev * 100, 2)
+        except Exception:
+            pass
+    return jsonify(result)
+
+
 @app.route("/api/trend/progress")
 def trend_progress():
     with _trend_lock:
