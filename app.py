@@ -1234,7 +1234,7 @@ def _fetch_hk_stocks() -> list[dict]:
 
 # ── trend trading scan ────────────────────────────────────────────────────────
 
-def _fetch_recent_highs(tc_code: str) -> tuple[float, float, float, float]:
+def _fetch_recent_highs(tc_code: str) -> tuple[float, float, float, float, float | None]:
     """Return (max_close_50d, max_close_50d, intraday_price, atr_50d).
 
     intraday_price = yesterday's hfq close scaled by today's real-time chg%,
@@ -1273,10 +1273,11 @@ def _fetch_recent_highs(tc_code: str) -> tuple[float, float, float, float]:
             pass
 
     if last_hfq == 0.0:
-        return (0.0, 0.0, 0.0, 0.0)
+        return (0.0, 0.0, 0.0, 0.0, None)
 
     # ── real-time intraday price: apply today's chg% to hfq last close ───────
     cur_price = last_hfq
+    chg_pct   = None      # 今日涨跌幅（%），直接从实时行情取，避免用缓存股票列表
     try:
         r = _sess.get(f"https://qt.gtimg.cn/q={tc_code}", timeout=5)
         for ln in r.text.strip().split(";\n"):
@@ -1284,13 +1285,14 @@ def _fetch_recent_highs(tc_code: str) -> tuple[float, float, float, float]:
                 continue
             flds = ln.split('"')[1].split("~")
             if len(flds) > 32 and flds[32]:
-                chg = float(flds[32])          # today's % change (e.g. -6.20)
+                chg       = float(flds[32])    # today's % change (e.g. -6.20)
+                chg_pct   = round(chg, 2)
                 cur_price = round(last_hfq * (1 + chg / 100), 4)
             break
     except Exception:
         pass
 
-    return (round(max_c50, 4), round(max_c50, 4), cur_price, atr)
+    return (round(max_c50, 4), round(max_c50, 4), cur_price, atr, chg_pct)
 
 
 def _weekly_end_date() -> str:
@@ -1476,7 +1478,7 @@ def _run_trend_scan(stock_list: list[dict]) -> None:
             else:
                 industry = _fetch_industry_board(code)
 
-            h7, h30, last_cls, atr_50d = _fetch_recent_highs(tc)
+            h7, h30, last_cls, atr_50d, chg_live = _fetch_recent_highs(tc)
 
             # 20-week return (for overextension penalty in UI)
             ret20w = None
@@ -1485,24 +1487,9 @@ def _run_trend_scan(stock_list: list[dict]) -> None:
                 if c0 > 0:
                     ret20w = round((c1 / c0 - 1) * 100, 1)
 
-            # pct10w / pct20w / closes_52w are fetched on-demand via
-            # /api/trend/closes52w after the frontend filters results down
-            # to a small set — no need to fetch 130 weeks for all 2000+ stocks.
-
-            # Today's change % — passed in from stock list for A/HK; fetch for ETFs
-            chg_today = stock.get("涨跌幅")
-            if chg_today is None:
-                try:
-                    r = _sess.get(f"https://qt.gtimg.cn/q={tc}", timeout=5)
-                    for ln in r.text.strip().split(";\n"):
-                        if not ln.strip():
-                            continue
-                        flds = ln.split('"')[1].split("~")
-                        if len(flds) > 32:
-                            chg_today = round(float(flds[32]), 2)
-                        break
-                except Exception:
-                    pass
+            # Today's change %：优先用 _fetch_recent_highs 中实时行情拿到的值，
+            # 避免使用缓存 24h 的股票列表中的昨日数据。
+            chg_today = chg_live if chg_live is not None else stock.get("涨跌幅")
 
             return {
                 "代码":          code,
