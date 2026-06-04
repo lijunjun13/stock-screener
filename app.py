@@ -1405,14 +1405,14 @@ def _fetch_us_stocks() -> list[dict]:
 
 def _fetch_us_kline_em(ticker: str, years: int = 10) -> tuple[list[str], list[float]]:
     """Fetch adjusted daily kline for a US stock via yfinance."""
-    cache_key = f"us_kline_v2_{ticker}"
+    cache_key = f"us_kline_v3_{ticker}"
     cached = _get(cache_key, ttl=86400)
     if cached:
         return cached.get("dates", []), cached.get("closes", [])
     try:
         import yfinance as yf
         period = f"{years}y"
-        hist = yf.Ticker(ticker).history(period=period, auto_adjust=True)
+        hist = yf.Ticker(ticker).history(period=period, auto_adjust=True, back_adjust=True)
         if hist.empty:
             return [], []
         dates  = [str(d)[:10] for d in hist.index]
@@ -2315,7 +2315,7 @@ def _yf_ohlcv(ticker: str, start: str, end: str, interval: str) -> list[dict]:
     try:
         import yfinance as yf
         hist = yf.Ticker(ticker).history(start=start, end=end,
-                                         interval=interval, auto_adjust=True)
+                                         interval=interval, auto_adjust=True, back_adjust=True)
         rows = []
         for ts, row in hist.iterrows():
             rows.append({
