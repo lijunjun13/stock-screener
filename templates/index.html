@@ -1331,6 +1331,7 @@ function _drawIntraday(divId, data, isHk = false, dailyRows = null) {
           priceScaleId: 'right', color, lineWidth: 1, lineStyle: LS_I.Dashed,
           priceLineVisible: false, lastValueVisible: true, crosshairMarkerVisible: false,
           priceFormat: { type: 'custom', formatter: v => `${lbl} ${v.toFixed(2)}` },
+          autoscaleInfoProvider: () => null,  // 不影响 Y 轴范围，以股价线为准
         });
         s.setData([{ time: t0, value: price }, { time: t1, value: price }]);
       });
