@@ -1089,7 +1089,7 @@ function _drawKline(divId, rows, maWindows, _ignored) {
       vertLine: { color: 'rgba(160,160,160,.55)', style: 3, width: 1.5, labelBackgroundColor: '#21262d' },
       horzLine: { color: 'rgba(160,160,160,.55)', style: 3, width: 1.5, labelBackgroundColor: '#21262d' },
     },
-    rightPriceScale: { borderColor: 'rgba(255,255,255,.1)' },
+    rightPriceScale: { borderColor: 'rgba(255,255,255,.1)', mode: LightweightCharts.PriceScaleMode.Logarithmic },
     timeScale:       { borderColor: 'rgba(255,255,255,.1)', fixLeftEdge: false, fixRightEdge: false },
     handleScroll:    true,
     handleScale:     true,
@@ -1198,7 +1198,7 @@ async function _loadMoreKline(divId) {
   if (s2) s2.loading = false;
 }
 
-function _drawIntraday(divId, data) {
+function _drawIntraday(divId, data, isHk = false) {
   if (!data.success || !data.times?.length) { _stError(divId, '暂无分时数据'); return; }
 
   const divEl = document.getElementById(divId);
@@ -1288,7 +1288,11 @@ function _drawIntraday(divId, data) {
     color: prices[i] >= (i === 0 ? ref : prices[i-1]) ? 'rgba(220,60,60,0.75)' : 'rgba(40,170,80,0.75)',
   })));
 
-  chart.timeScale().fitContent();
+  // 固定横轴到完整交易时段：A股 09:30-15:00，港股 09:30-16:00
+  chart.timeScale().setVisibleRange({
+    from: toSec('09:30'),
+    to:   toSec(isHk ? '16:00' : '15:00'),
+  });
 
   _lwcState.set(divId, { chart });
   const ro = new ResizeObserver(() => chart.applyOptions({ width: divEl.clientWidth, height: divEl.clientHeight }));
@@ -1334,8 +1338,9 @@ async function _loadShortTerm(code) {
     fetch(`/api/stock/intraday/${code}`).then(r => r.json()).catch(() => null),
   ]);
 
-  // 分时图
-  if (intradayRes) _drawIntraday('stIntradayDiv', intradayRes);
+  // 分时图（5位数字 = 港股，6位 = A股）
+  const _isHk = /^\d{5}$/.test(code);
+  if (intradayRes) _drawIntraday('stIntradayDiv', intradayRes, _isHk);
   else _stError('stIntradayDiv', '分时数据加载失败');
 
   // 日线
