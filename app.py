@@ -1498,10 +1498,17 @@ def _fetch_recent_highs(tc_code: str) -> tuple[float, float, float, float, float
             r.raise_for_status()
             sd     = r.json()["data"][tc_code]
             rows   = (sd.get("hfqday") or sd.get("qfqday") or sd.get("day") or [])
+            dates  = [row[0] for row in rows if len(row) > 2 and row[2]]
             closes = [float(row[2]) for row in rows if len(row) > 2 and row[2]]
             if len(closes) >= 10:
                 max_c50  = max(closes[-50:]) if len(closes) >= 50 else max(closes)
-                last_hfq = closes[-1]
+                today_str = today.strftime("%Y-%m-%d")
+                # 如果 kline 已包含今日收盘，用 closes[-2] 作为"昨收"基准，
+                # 避免前端再乘一次今日涨跌幅造成双重计算
+                if dates and dates[-1] >= today_str and len(closes) >= 2:
+                    last_hfq = closes[-2]
+                else:
+                    last_hfq = closes[-1]
                 rets = [abs(closes[i] / closes[i-1] - 1) * 100
                         for i in range(1, len(closes))]
                 atr  = round(sum(rets[-50:]) / min(len(rets), 50), 2)
