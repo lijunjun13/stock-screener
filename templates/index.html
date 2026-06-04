@@ -1376,7 +1376,16 @@ function _drawIntraday(divId, data, isHk = false, dailyRows = null, isUs = false
     priceFormat: { type: 'custom', formatter: v => (v >= 0 ? '+' : '') + v.toFixed(2) + '%' },
   });
   chart.priceScale('left').applyOptions({ scaleMargins: { top: 0.05, bottom: 0.25 } });
-  pctLine.setData(prices.map((p, i) => ({ time: toSec(times[i]), value: ref > 0 ? (p/ref-1)*100 : 0 })));
+
+  // Build session end timestamp for this market
+  const _sessionEnd = toSec((isHk || isUs) ? '16:00' : '15:00');
+
+  // Anchor phantom point at session-end so LWC always extends the axis to close
+  const pctData = prices.map((p, i) => ({ time: toSec(times[i]), value: ref > 0 ? (p/ref-1)*100 : 0 }));
+  const lastPct  = pctData.length ? pctData[pctData.length - 1].value : 0;
+  if (!pctData.length || pctData[pctData.length - 1].time < _sessionEnd)
+    pctData.push({ time: _sessionEnd, value: lastPct });
+  pctLine.setData(pctData);
 
   // 成交量（底部）
   const volSeries = chart.addHistogramSeries({
@@ -1393,7 +1402,7 @@ function _drawIntraday(divId, data, isHk = false, dailyRows = null, isUs = false
   // 固定横轴到完整交易时段：A股 09:30-15:00，港股/美股 09:30-16:00
   chart.timeScale().setVisibleRange({
     from: toSec('09:30'),
-    to:   toSec((isHk || isUs) ? '16:00' : '15:00'),
+    to:   _sessionEnd,
   });
 
   _lwcState.set(divId, { chart });
