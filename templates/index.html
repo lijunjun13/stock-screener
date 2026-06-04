@@ -2662,6 +2662,18 @@ function _drawPhaseBandsLWC(phases) {
     return null;
   }
 
+  // Find coordinate of the most recent bar that actually has data (up to 10 days back).
+  // Used to cap bands at the last real data point, not in the empty right-padding area.
+  function _lastBarCoord(ts) {
+    const now = new Date(Date.now() + 8 * 3600000); // CST
+    for (let off = 0; off <= 10; off++) {
+      const d = new Date(now - off * 86400000);
+      const c = ts.timeToCoordinate({ year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() });
+      if (c !== null) return c;
+    }
+    return null;
+  }
+
   function updateBands() {
     overlay.innerHTML = '';
     const ts = _lwcLTChart.timeScale();
@@ -2681,9 +2693,10 @@ function _drawPhaseBandsLWC(phases) {
       let rawX0 = _probeCoord(ts, sy, sm, 1, 7);
       let rawX1 = _probeCoord(ts, ey, em, 28, 22);
 
-      // If end is in the future/beyond data, anchor to right edge
-      if (rawX1 === null) rawX1 = W;
-      // If start is beyond the right edge of visible data, skip
+      // If end date is beyond data (future), anchor to last actual bar to avoid
+      // coloring the empty right-padding area of the chart.
+      if (rawX1 === null) rawX1 = _lastBarCoord(ts) ?? W;
+      // If start is also off-screen to the right of visible data, skip
       if (rawX0 === null && rawX1 <= 0) return;
 
       const left  = Math.max(rawX0 ?? 0, 0);
