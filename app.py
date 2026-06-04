@@ -1628,7 +1628,7 @@ def _fetch_weekly_closes_long(tc_code: str, n: int = 130) -> list[float]:
     """Return last n weekly hfq-adjusted closing prices for percentile calculations.
 
     Uses a separate cache key from _fetch_weekly_closes so that the short
-    22-week cache is not invalidated.  Cached for 2 h.
+    22-week cache is not invalidated.  Cached 12 h.
     """
     cache_key = f"weekly_long_v1_{tc_code}"
     cached = _get(cache_key, ttl=43200)
@@ -1652,15 +1652,57 @@ def _fetch_weekly_closes_long(tc_code: str, n: int = 130) -> list[float]:
         result = closes[-n:]
     except Exception:
         pass
+    if not result and not tc_code.startswith("hk"):
+        result = _fetch_weekly_closes_em(tc_code, n)
     if result:
         _set(cache_key, result)
     return result
 
 
+def _fetch_weekly_closes_em(tc_code: str, n: int) -> list[float]:
+    """Eastmoney fallback for A-share weekly hfq closes (push2his klt=102)."""
+    end = _weekly_end_date()
+    beg_date = (datetime.strptime(end, "%Y-%m-%d") - timedelta(days=(n + 6) * 7)).strftime("%Y%m%d")
+    end_date = end.replace("-", "")
+    mkt = "1" if tc_code.startswith("sh") else "0"
+    code = tc_code[2:]
+    secid = f"{mkt}.{code}"
+    try:
+        r = _em_sess.get(
+            "https://push2his.eastmoney.com/api/qt/stock/kline/get",
+            params={
+                "secid": secid, "fields1": "f1,f2,f3,f4,f5",
+                "fields2": "f51,f52,f53,f54,f55,f56",
+                "klt": "102", "fqt": "1",
+                "beg": beg_date, "end": end_date, "lmt": str(n + 10),
+            },
+            headers={"Referer": "https://quote.eastmoney.com/"},
+            timeout=10,
+        )
+        r.raise_for_status()
+        klines = ((r.json().get("data") or {}).get("klines") or [])
+        closes = []
+        for k in klines:
+            parts = k.split(",")
+            if len(parts) < 3:
+                continue
+            if parts[0].replace("-", "") > end_date:
+                continue
+            try:
+                closes.append(float(parts[2]))
+            except (ValueError, IndexError):
+                pass
+        return closes[-n:]
+    except Exception:
+        return []
+
+
 def _fetch_weekly_closes(tc_code: str, n: int = 12) -> list[float]:
     """Return last n weekly hfq-adjusted closing prices, oldest first.
 
-    Uses Tencent's fqkline 'week' endpoint.  Cached for 2 h.
+    Primary: Tencent fqkline 'week' endpoint.
+    Fallback: Eastmoney push2his klt=102 (when Tencent is rate-limited).
+    Cached 12 h.
     """
     cache_key = f"weekly_v2_{tc_code}"
     cached = _get(cache_key, ttl=43200)
@@ -1685,6 +1727,9 @@ def _fetch_weekly_closes(tc_code: str, n: int = 12) -> list[float]:
         result = closes[-n:]
     except Exception:
         pass
+    # Eastmoney fallback for A-shares/ETFs when Tencent fails (e.g. rate-limit from non-CN IPs)
+    if not result and not tc_code.startswith("hk"):
+        result = _fetch_weekly_closes_em(tc_code, n)
     if result:
         _set(cache_key, result)
     return result
