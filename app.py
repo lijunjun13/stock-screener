@@ -1959,13 +1959,18 @@ def _resolve_tc(code: str) -> str:
         return code
     if len(code) <= 5 and code.isdigit():
         return "hk" + code.zfill(5)
-    tc = ("sh" if code.startswith("6") else "sz") + code
+    # ETF 列表优先（含正确 sh/sz 前缀）
+    for e in _MAJOR_ETFS:
+        if e["代码"] == code:
+            return e["_tc"]
+    # A 股列表
     cl = _get("stock_list", ttl=86400)
     if cl:
         for s in cl["data"]:
             if s["代码"] == code:
                 return s["_tc"]
-    return tc
+    # 兜底：5/6 开头 → 上交所；其余 → 深交所
+    return ("sh" if code.startswith(("6", "5")) else "sz") + code
 
 
 # ── Watchlist ─────────────────────────────────────────────────────────────────
