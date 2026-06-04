@@ -1270,7 +1270,7 @@ async function _loadMoreKline(divId) {
   if (s2) s2.loading = false;
 }
 
-function _drawIntraday(divId, data, isHk = false, dailyRows = null) {
+function _drawIntraday(divId, data, isHk = false, dailyRows = null, isUs = false) {
   if (!data.success || !data.times?.length) { _stError(divId, '暂无分时数据'); return; }
 
   const divEl = document.getElementById(divId);
@@ -1390,10 +1390,10 @@ function _drawIntraday(divId, data, isHk = false, dailyRows = null) {
     color: prices[i] >= (i === 0 ? ref : prices[i-1]) ? 'rgba(220,60,60,0.75)' : 'rgba(40,170,80,0.75)',
   })));
 
-  // 固定横轴到完整交易时段：A股 09:30-15:00，港股 09:30-16:00
+  // 固定横轴到完整交易时段：A股 09:30-15:00，港股/美股 09:30-16:00
   chart.timeScale().setVisibleRange({
     from: toSec('09:30'),
-    to:   toSec(isHk ? '16:00' : '15:00'),
+    to:   toSec((isHk || isUs) ? '16:00' : '15:00'),
   });
 
   _lwcState.set(divId, { chart });
@@ -1440,9 +1440,10 @@ async function _loadShortTerm(code) {
     fetch(`/api/stock/intraday/${code}`).then(r => r.json()).catch(() => null),
   ]);
 
-  // 分时图（5位数字 = 港股，6位 = A股；传入日线数据用于止损带）
+  // 分时图：5位数字 = 港股，纯大写字母 = 美股，6位数字 = A股
   const _isHk = /^\d{5}$/.test(code);
-  if (intradayRes) _drawIntraday('stIntradayDiv', intradayRes, _isHk, klineRes?.daily || null);
+  const _isUs = /^[A-Z]{1,6}$/.test(code);
+  if (intradayRes) _drawIntraday('stIntradayDiv', intradayRes, _isHk, klineRes?.daily || null, _isUs);
   else _stError('stIntradayDiv', '分时数据加载失败');
 
   // 日线
