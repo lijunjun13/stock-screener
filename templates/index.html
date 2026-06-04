@@ -2699,7 +2699,8 @@ function _drawPhaseBandsLWC(phases) {
       // If start is also off-screen to the right of visible data, skip
       if (rawX0 === null && rawX1 <= 0) return;
 
-      const left  = Math.max(rawX0 ?? 0, 0);
+      // First phase: extend to left edge; last phase already capped by _lastBarCoord
+      const left  = i === 0 ? 0 : Math.max(rawX0 ?? 0, 0);
       const right = Math.min(rawX1, W);
       if (right <= left) return;
 
