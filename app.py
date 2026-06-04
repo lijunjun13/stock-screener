@@ -715,7 +715,8 @@ def _fetch_kline_range(tc_code: str, start: str, end: str) -> tuple[list[str], l
                     raise
                 time.sleep(1)
         try:
-            rows = r.json()["data"][tc_code]["hfqday"]
+            sd   = r.json()["data"][tc_code]
+            rows = sd.get("hfqday") or sd.get("qfqday") or sd.get("day") or []
         except (KeyError, TypeError):
             continue
         for row in rows:
@@ -949,10 +950,12 @@ def _compute_regression_payload(tc_code: str, code: str) -> dict | None:
     if not dates:
         return None
 
-    # Drop stocks listed less than 3 years ago
-    cutoff_3y = (datetime.now() - timedelta(days=3 * 365)).strftime("%Y-%m-%d")
-    if dates[0] > cutoff_3y:
-        return None
+    # Drop stocks listed less than 3 years ago (ETFs exempt — shorter history is fine)
+    _is_etf_code = any(e["代码"] == code for e in _MAJOR_ETFS)
+    if not _is_etf_code:
+        cutoff_3y = (datetime.now() - timedelta(days=3 * 365)).strftime("%Y-%m-%d")
+        if dates[0] > cutoff_3y:
+            return None
 
     arr   = np.array(closes, dtype=float)
     log_y = np.log(arr)
@@ -1714,13 +1717,7 @@ def get_hk_stocks():
 @app.route("/api/stock/<code>")
 def get_stock_data(code: str):
     try:
-        tc_code = ("sh" if code.startswith("6") else "sz") + code
-        cl = _get("stock_list", ttl=86400)
-        if cl:
-            for s in cl["data"]:
-                if s["代码"] == code:
-                    tc_code = s["_tc"]
-                    break
+        tc_code = _resolve_tc(code)
         p = _compute_regression_payload(tc_code, code)
         if not p:
             return jsonify({"success": False, "error": "无历史数据"}), 404
