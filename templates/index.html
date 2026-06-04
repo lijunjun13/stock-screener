@@ -4411,7 +4411,7 @@ function startTrendScan(force = false) {
   fetch('/api/trend/start', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({force}),
+    body: JSON.stringify({force, market: _activeMarket}),
   })
   .then(r => r.json())
   .then(d => {

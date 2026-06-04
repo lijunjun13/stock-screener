@@ -2346,28 +2346,37 @@ def screen_progress():
         })
 
 
-def _build_trend_stock_list() -> dict:
-    """Build (or return cached) the trend-scan universe.
+def _build_trend_stock_list(market: str = "a") -> dict:
+    """Build (or return cached) the trend-scan universe for the given market.
 
-    A-shares ≥100亿  +  curated ETFs  +  HK main-board 100-2000亿HKD.
-    Completely independent of the main stock_list (300亿 A-share list).
-    Cached 24 h under 'trend_stock_list_v3'.
+    market='a'  → A-shares ≥100亿 + curated ETFs  (cached 24 h)
+    market='hk' → HK main-board stocks only        (cached 24 h)
     """
-    cached = _get("trend_stock_list_v3", ttl=86400)
+    if market == "hk":
+        cache_key = "trend_stock_list_hk_v1"
+        cached = _get(cache_key, ttl=86400)
+        if cached:
+            return cached
+        hk = _fetch_hk_stocks()
+        payload = {"success": True, "data": hk, "total": len(hk)}
+        if hk:
+            _set(cache_key, payload)
+        return payload
+
+    # A-share mode (default)
+    cache_key = "trend_stock_list_a_v1"
+    cached = _get(cache_key, ttl=86400)
     if cached:
         return cached
-
     a_stocks = [s for s in _fetch_a_stock_list() if s["市值亿"] >= 100.0]
     a_codes  = {s["代码"] for s in a_stocks}
     etfs     = [e for e in _MAJOR_ETFS if e["代码"] not in a_codes]
-    hk       = _fetch_hk_stocks()
-
     payload = {
         "success": True,
-        "data":    a_stocks + etfs + hk,
-        "total":   len(a_stocks) + len(etfs) + len(hk),
+        "data":    a_stocks + etfs,
+        "total":   len(a_stocks) + len(etfs),
     }
-    _set("trend_stock_list_v3", payload)
+    _set(cache_key, payload)
     return payload
 
 
@@ -2382,16 +2391,15 @@ def trend_stocks():
 
 @app.route("/api/trend/start", methods=["POST"])
 def trend_start():
-    # Build the list if needed — never falls back to the main 300亿 stock_list
+    body   = request.get_json(silent=True) or {}
+    market = body.get("market", "a")
     try:
-        cl = _build_trend_stock_list()
+        cl = _build_trend_stock_list(market=market)
     except Exception as exc:
         return jsonify({"error": f"加载股票列表失败：{exc}"}), 400
     if not cl.get("data"):
         return jsonify({"error": "股票列表为空，请稍后重试"}), 400
-    force = (request.args.get("force") == "1") or (
-        (request.get_json(silent=True) or {}).get("force", False)
-    )
+    force = (request.args.get("force") == "1") or body.get("force", False)
     with _trend_lock:
         already_running = _trend_scan["running"]
         already_done    = _trend_scan["done"] and len(_trend_scan["results"]) > 0
