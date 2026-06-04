@@ -1403,8 +1403,25 @@ def _fetch_us_stocks() -> list[dict]:
     return stocks
 
 
+def _us_hfq_k(raw_hist) -> float:
+    """Compute 后复权 scale factor K from a yfinance auto_adjust=False history DataFrame.
+    K = cumulative_split_ratio × (raw_close[0] / adj_close[0])
+    后复权_price(t) = adj_close(t) × K
+    """
+    try:
+        split_k = 1.0
+        for v in raw_hist.get("Stock Splits", []):
+            if float(v) > 1:
+                split_k *= float(v)
+        c0 = float(raw_hist["Close"].iloc[0])
+        a0 = float(raw_hist["Adj Close"].iloc[0])
+        return split_k * c0 / a0 if a0 > 0 else split_k
+    except Exception:
+        return 1.0
+
+
 def _fetch_us_kline_em(ticker: str, years: int = 10) -> tuple[list[str], list[float]]:
-    """Fetch adjusted daily kline for a US stock via yfinance."""
+    """Fetch 后复权 daily kline for a US stock via yfinance."""
     cache_key = f"us_kline_v3_{ticker}"
     cached = _get(cache_key, ttl=86400)
     if cached:
@@ -1412,11 +1429,12 @@ def _fetch_us_kline_em(ticker: str, years: int = 10) -> tuple[list[str], list[fl
     try:
         import yfinance as yf
         period = f"{years}y"
-        hist = yf.Ticker(ticker).history(period=period, auto_adjust=True, back_adjust=True)
-        if hist.empty:
+        raw = yf.Ticker(ticker).history(period=period, auto_adjust=False, actions=True)
+        if raw.empty:
             return [], []
-        dates  = [str(d)[:10] for d in hist.index]
-        closes = [round(float(c), 4) for c in hist["Close"]]
+        K      = _us_hfq_k(raw)
+        dates  = [str(d)[:10] for d in raw.index]
+        closes = [round(float(c) * K, 4) for c in raw["Adj Close"]]
         if dates:
             _set(cache_key, {"dates": dates, "closes": closes})
         return dates, closes
@@ -2311,19 +2329,26 @@ def watchlist_remove(tc_code: str):
 
 
 def _yf_ohlcv(ticker: str, start: str, end: str, interval: str) -> list[dict]:
-    """Fetch OHLCV bars from yfinance and return as list of dicts."""
+    """Fetch 后复权 OHLCV bars from yfinance."""
     try:
         import yfinance as yf
-        hist = yf.Ticker(ticker).history(start=start, end=end,
-                                         interval=interval, auto_adjust=True, back_adjust=True)
+        raw = yf.Ticker(ticker).history(start=start, end=end,
+                                        interval=interval, auto_adjust=False, actions=True)
+        if raw.empty:
+            return []
+        K = _us_hfq_k(raw)
         rows = []
-        for ts, row in hist.iterrows():
+        for ts, row in raw.iterrows():
+            c   = float(row["Close"])
+            ac  = float(row["Adj Close"])
+            # per-bar dividend ratio to keep OHLC consistent with 后复权 close
+            dr  = ac / c if c > 0 else 1.0
             rows.append({
                 "date":   str(ts)[:10],
-                "open":   round(float(row["Open"]),   4),
-                "close":  round(float(row["Close"]),  4),
-                "high":   round(float(row["High"]),   4),
-                "low":    round(float(row["Low"]),    4),
+                "open":   round(float(row["Open"])  * dr * K, 4),
+                "close":  round(ac * K,                       4),
+                "high":   round(float(row["High"])  * dr * K, 4),
+                "low":    round(float(row["Low"])   * dr * K, 4),
                 "volume": float(row["Volume"]),
             })
         return rows
