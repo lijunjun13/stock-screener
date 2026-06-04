@@ -898,6 +898,7 @@ let _selectedYears    = new Set(['10y', '5y']);
 let _currentChartData = null;
 let _currentStockName = '';
 let _currentCode      = '';
+let _currentPhaseText = '';  // last successful phase analysis text, for re-draw after chart rebuild
 
 // ── load stock list ──────────────────────────────────────────────────────────
 async function loadList() {
@@ -1014,6 +1015,7 @@ function openModal(code, name) {
   _currentCode      = code;
   _currentStockName = name;
   _longTermLoaded   = false;
+  _currentPhaseText = '';
   document.getElementById('modalTitle').textContent = `${name}（${code}）`;
   _updateModalWlBtn();
   document.getElementById('modalOverlay').classList.add('open');
@@ -1646,6 +1648,8 @@ function toggleYr(btn, yr) {
     drawChart(_currentChartData, _currentStockName, _currentCode);
     drawStats(_currentChartData.stats_10y, _currentChartData.stats_5y,
               _currentChartData.band_stats, _currentChartData, _currentCode);
+    // Re-apply phase annotations after chart rebuild
+    if (_currentPhaseText) applyPhaseAnnotations(_currentPhaseText);
   }
 }
 
@@ -2854,8 +2858,9 @@ function applyPhaseAnnotations(text) {
     return;
   }
 
+  _currentPhaseText = text;  // persist for re-draw after chart rebuild (e.g. toggleYr)
+
   drawPhaseBands(phases).then(() => setupPhaseHover(phases)).catch(() => {
-    // relayout 后 .on 有时还未绑定，稍等后重试
     setTimeout(() => setupPhaseHover(phases), 300);
   });
 
