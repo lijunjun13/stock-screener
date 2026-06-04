@@ -2111,9 +2111,20 @@ def get_stock_kline(code: str):
                     prev_vol = daily[-1]["volume"]
                     # 成交量与上一交易日相同 → 接口返回的是缓存旧数据（未开盘/休市）
                     if c > 0 and o > 0 and v != prev_vol:
+                        # qt.gtimg 返回实际（未复权）价格，需换算成后复权价格。
+                        # 系数 = 昨日 hfq 收盘 / 昨日实际收盘（field[4]）。
+                        # 除权当天 field[4] 为除权前实际收盘价，hfq 已含历史复权，
+                        # 两者之比即为当前累计复权系数，今日 OHLC 乘以该系数即可。
+                        prev_actual = float(f[4] or 0)
+                        prev_hfq    = daily[-1]["close"]
+                        scale = (prev_hfq / prev_actual) if prev_actual > 0 else 1.0
                         daily.append({
-                            "date": today_str, "open": o, "close": c,
-                            "high": h, "low": l, "volume": v, "intraday": True,
+                            "date": today_str,
+                            "open":  round(o * scale, 4),
+                            "close": round(c * scale, 4),
+                            "high":  round(h * scale, 4),
+                            "low":   round(l * scale, 4),
+                            "volume": v, "intraday": True,
                         })
                 break
         except Exception:
