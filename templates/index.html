@@ -4005,8 +4005,11 @@ function renderTrendResults() {
     return true;
   };
 
-  const wlPinned = trendAllResults.filter(s => _wlCodeSet.has(s.代码));
-  // 自选股绕过过滤，与其他股票一起正常排序
+  // 自选股豁免斜率/估值等过滤，但必须符合当前市场模式（A股/港股）
+  const _marketOk = s =>
+    !(_activeMarket === 'a'  &&  s.is_hk) &&
+    !(_activeMarket === 'hk' && !s.is_hk);
+  const wlPinned = trendAllResults.filter(s => _wlCodeSet.has(s.代码) && _marketOk(s));
   let rows = [
     ...wlPinned,
     ...trendAllResults.filter(s => !_wlCodeSet.has(s.代码) && _passFilter(s)),
