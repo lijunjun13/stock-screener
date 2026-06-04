@@ -3060,20 +3060,19 @@ async function runPhaseAnalysis(code) {
   let fullText = '';
   let hadError = false;
 
-  try {
+  async function _doStream(imgData) {
     const resp = await fetch(`/api/analyze_chart/${code}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image: imageData }),
+      body: JSON.stringify({ image: imgData }),
     });
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({ error: resp.statusText }));
       throw new Error(err.error || resp.statusText);
     }
-
     const reader  = resp.body.getReader();
     const decoder = new TextDecoder();
-
+    let text = '';
     outer: while (true) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -3084,9 +3083,20 @@ async function runPhaseAnalysis(code) {
         try { obj = JSON.parse(line.slice(6)); } catch { continue; }
         if (obj.error)  { throw new Error(obj.error); }
         if (obj.status) { setStatus(obj.status); }
-        if (obj.text)   { fullText += obj.text; }
+        if (obj.text)   { text += obj.text; }
         if (obj.done)   { break outer; }
       }
+    }
+    return text;
+  }
+
+  try {
+    fullText = await _doStream(imageData);
+
+    // If AI returned empty text (e.g. search-only run), silently retry once.
+    if (!fullText.trim() && !isStale()) {
+      setStatus('重试中…');
+      fullText = await _doStream(imageData);
     }
 
     if (!isStale()) {
