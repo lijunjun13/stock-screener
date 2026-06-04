@@ -1307,68 +1307,95 @@ def _fetch_hk_stocks() -> list[dict]:
 
 # ── US stocks ─────────────────────────────────────────────────────────────────
 
-def _fetch_us_stocks() -> list[dict]:
-    """Fetch US large-cap stocks from Eastmoney push2 clist.
+# Major non-S&P-500 US-listed stocks (large ADRs + other large caps) to supplement the S&P 500 list
+_US_SUPPLEMENT = [
+    "TSM","ASML","NVO","SAP","SHEL","AZN","TM","SONY","NVS","RY","TD","SNY",
+    "HDB","INFY","WIT","BIDU","PDD","BABA","JD","TCEHY","MELI","SE","GRAB",
+    "NET","DDOG","SNOW","CRWD","ZS","PANW","PLTR","ARM","SMCI","MRVL","AMAT",
+    "LRCX","KLAC","MCHP","ADI","TXN","QCOM","INTC","MU","STX","WDC","SWKS",
+]
 
-    Market cap (f20) is in USD; we convert to 亿美元.
-    Filter: >= 300亿美元 (US$30 billion).
-    """
-    cache_key = "us_stocks_v1"
-    cached = _get(cache_key, ttl=300)
+def _fetch_us_ticker_list() -> list[str]:
+    """Get S&P 500 tickers from Wikipedia + supplement. Cached 7 days."""
+    cache_key = "us_ticker_list_v1"
+    cached = _get(cache_key, ttl=86400 * 7)
     if cached:
         return cached
 
-    PAGE, MIN_MKT = 500, 300.0
-    stocks: list[dict] = []
+    tickers: set[str] = set(_US_SUPPLEMENT)
+    try:
+        from yfinance.data import YfData
+        import pandas as pd, io
+        yd = YfData()
+        r  = yd.get("https://en.wikipedia.org/wiki/List_of_S%26P_500_companies", timeout=15)
+        sp500_tickers = pd.read_html(io.StringIO(r.text))[0]["Symbol"] \
+                          .str.replace(".", "-", regex=False).tolist()
+        tickers.update(sp500_tickers)
+    except Exception as exc:
+        import sys; print(f"[us_tickers] wiki S&P500: {exc}", file=sys.stderr)
 
-    for pn in range(1, 8):
-        url = (
-            "https://push2.eastmoney.com/api/qt/clist/get"
-            "?fid=f20&ob=1&po=1&np=1&ut=bd1d9ddb04089700cf9c27f6f7426281"
-            "&fltt=2&invt=2&wbp2u=|0|0|0|web&dect=1"
-            "&fields=f2,f3,f5,f12,f13,f14,f20,f100"
-            f"&pn={pn}&pz={PAGE}"
-            "&fs=m:105+t:1,m:106+t:1,m:107+t:1"
-        )
+    result = sorted(tickers)
+    if len(result) > 50:
+        _set(cache_key, result)
+    return result
+
+
+def _yf_quote_batch(symbols: list[str]) -> dict:
+    """Batch-fetch quote data (price, market cap, name, sector) via Yahoo Finance V7 API."""
+    from yfinance.data import YfData
+    yd      = YfData()
+    results = {}
+    BATCH   = 100
+    for i in range(0, len(symbols), BATCH):
+        batch = symbols[i:i + BATCH]
         try:
-            r = _sess.get(url, timeout=15)
-            r.raise_for_status()
-            data  = r.json().get("data") or {}
-            items = data.get("diff") or []
-            if not items:
-                break
-
-            page_qualified = 0
-            for item in items:
-                ticker = str(item.get("f12") or "").strip()
-                name   = str(item.get("f14") or "").strip()
-                if not ticker or not name:
-                    continue
-                mktcap = float(item.get("f20") or 0) / 1e8
-                if mktcap < MIN_MKT:
-                    continue
-                page_qualified += 1
-                em_mkt = int(item.get("f13") or 105)
-                stocks.append({
-                    "代码":          ticker,
-                    "名称":          name,
-                    "市值亿":        round(mktcap, 1),
-                    "最新价":        round(float(item.get("f2") or 0), 2),
-                    "涨跌幅":        round(float(item.get("f3") or 0), 2),
-                    "industry_board": str(item.get("f100") or "") or "美股",
-                    "_tc":           f"us{ticker}",
-                    "_em_secid":     f"{em_mkt}.{ticker}",
-                })
-
-            total = data.get("total", 0)
-            if len(items) < PAGE or len(stocks) >= total:
-                break
-            # Once we're deep into the list and barely qualifying, stop
-            if pn >= 2 and page_qualified < 10:
-                break
+            r = yd.get(
+                "https://query2.finance.yahoo.com/v7/finance/quote",
+                params={
+                    "symbols": ",".join(batch),
+                    "fields":  "symbol,shortName,marketCap,regularMarketPrice,"
+                               "regularMarketChangePercent,sectorKey",
+                },
+                timeout=15,
+            )
+            for q in (r.json().get("quoteResponse") or {}).get("result") or []:
+                sym = q.get("symbol")
+                if sym:
+                    results[sym] = q
         except Exception as exc:
-            import sys; print(f"[us_stocks] page {pn}: {exc}", file=sys.stderr)
-            break
+            import sys; print(f"[yf_quote_batch] batch {i//BATCH}: {exc}", file=sys.stderr)
+    return results
+
+
+def _fetch_us_stocks() -> list[dict]:
+    """Fetch US large-cap stocks (≥ 300亿USD = $30B) via Yahoo Finance."""
+    cache_key = "us_stocks_v2"
+    cached = _get(cache_key, ttl=300)   # 5-minute TTL for real-time prices
+    if cached:
+        return cached
+
+    tickers = _fetch_us_ticker_list()
+    quotes  = _yf_quote_batch(tickers)
+
+    MIN_MKT = 300.0   # 亿USD
+    stocks: list[dict] = []
+    for sym, q in quotes.items():
+        mktcap = float(q.get("marketCap") or 0) / 1e8
+        if mktcap < MIN_MKT:
+            continue
+        price  = round(float(q.get("regularMarketPrice") or 0), 2)
+        chg    = round(float(q.get("regularMarketChangePercent") or 0), 2)
+        name   = str(q.get("shortName") or sym)
+        sector = str(q.get("sectorKey") or "")
+        stocks.append({
+            "代码":          sym,
+            "名称":          name,
+            "市值亿":        round(mktcap, 1),
+            "最新价":        price,
+            "涨跌幅":        chg,
+            "industry_board": sector or "美股",
+            "_tc":           f"us{sym}",
+        })
 
     stocks.sort(key=lambda x: -x["市值亿"])
     if stocks:
@@ -1817,41 +1844,10 @@ def get_hk_stocks():
 
 @app.route("/api/us_stocks")
 def get_us_stocks():
-    """返回市值 ≥ 300亿美元的美股列表，附 Yahoo Finance 实时行情。"""
+    """返回市值 ≥ 300亿美元的美股列表（数据全部来自 Yahoo Finance）。"""
     stocks = _fetch_us_stocks()
     if not stocks:
         return jsonify({"success": False, "error": "获取美股数据失败"}), 503
-
-    # Batch-fetch latest close + prev close via yfinance
-    try:
-        import yfinance as yf
-        import pandas as pd
-        syms = [s["代码"] for s in stocks]
-        df   = yf.download(syms, period="2d", progress=False, auto_adjust=True)
-        close = df["Close"] if not df.empty else pd.DataFrame()
-
-        quotes: dict = {}
-        for sym in syms:
-            try:
-                series = close[sym].dropna() if sym in close.columns else pd.Series(dtype=float)
-                if series.empty:
-                    continue
-                price = round(float(series.iloc[-1]), 2)
-                prev  = round(float(series.iloc[-2]), 2) if len(series) >= 2 else price
-                chg   = round((price - prev) / prev * 100, 2) if prev else 0.0
-                quotes[sym] = {"最新价": price, "涨跌幅": chg}
-            except Exception:
-                pass
-    except Exception as exc:
-        import sys; print(f"[us_realtime] {exc}", file=sys.stderr)
-        quotes = {}
-
-    for s in stocks:
-        q = quotes.get(s["代码"], {})
-        if q.get("最新价"):
-            s["最新价"] = q["最新价"]
-            s["涨跌幅"] = q["涨跌幅"]
-
     return jsonify({"success": True, "data": stocks, "total": len(stocks)})
 
 
