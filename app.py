@@ -1355,7 +1355,7 @@ def _yf_quote_batch(symbols: list[str]) -> dict:
                 params={
                     "symbols": ",".join(batch),
                     "fields":  "symbol,shortName,marketCap,regularMarketPrice,"
-                               "regularMarketChangePercent,sectorKey",
+                               "regularMarketChangePercent,sectorKey,trailingPE",
                 },
                 timeout=15,
             )
@@ -1370,7 +1370,7 @@ def _yf_quote_batch(symbols: list[str]) -> dict:
 
 def _fetch_us_stocks() -> list[dict]:
     """Fetch US large-cap stocks (≥ 300亿USD = $30B) via Yahoo Finance."""
-    cache_key = "us_stocks_v2"
+    cache_key = "us_stocks_v3"
     cached = _get(cache_key, ttl=300)   # 5-minute TTL for real-time prices
     if cached:
         return cached
@@ -1388,12 +1388,15 @@ def _fetch_us_stocks() -> list[dict]:
         chg    = round(float(q.get("regularMarketChangePercent") or 0), 2)
         name   = str(q.get("shortName") or sym)
         sector = str(q.get("sectorKey") or "")
+        pe_raw = q.get("trailingPE")
+        pe     = round(float(pe_raw), 1) if pe_raw and float(pe_raw) > 0 else 0.0
         stocks.append({
             "代码":          sym,
             "名称":          name,
             "市值亿":        round(mktcap, 1),
             "最新价":        price,
             "涨跌幅":        chg,
+            "pe":            pe,
             "industry_board": sector or "美股",
             "_tc":           f"us{sym}",
         })
