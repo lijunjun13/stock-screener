@@ -1318,7 +1318,9 @@ function _drawIntraday(divId, data, isHk = false, dailyRows = null) {
     const lastBot = botData[botData.length - 1];
     if (lastTop != null && lastBot != null) {
       const lastHfq = dailyRows[dailyRows.length - 1].close;
-      const scale   = lastHfq > 0 ? ref / lastHfq : 1;
+      // 用同一时刻的实际价 ÷ HFQ 价，避免"昨日实际 ÷ 今日HFQ"跨日混用误差
+      const curActual = prices[prices.length - 1];
+      const scale = (lastHfq > 0 && curActual > 0) ? curActual / lastHfq : (ref / lastHfq || 1);
       const top3    = lastTop * scale;
       const bot4    = lastBot * scale;
       const LS_I    = LightweightCharts.LineStyle;
