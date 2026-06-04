@@ -1499,11 +1499,8 @@ def _fetch_recent_highs(tc_code: str) -> tuple[float, float, float, float, float
             sd     = r.json()["data"][tc_code]
             rows   = (sd.get("hfqday") or sd.get("qfqday") or sd.get("day") or [])
             closes = [float(row[2]) for row in rows if len(row) > 2 and row[2]]
-            highs  = [float(row[3]) for row in rows if len(row) > 3 and row[3]]
             if len(closes) >= 10:
-                # 用50日最高价（High）作为峰值，而非最高收盘价
-                max_h  = highs[-50:]  if len(highs)  >= 50 else highs
-                max_c50  = max(max_h) if max_h else max(closes[-50:] if len(closes) >= 50 else closes)
+                max_c50  = max(closes[-50:]) if len(closes) >= 50 else max(closes)
                 last_hfq = closes[-1]
                 rets = [abs(closes[i] / closes[i-1] - 1) * 100
                         for i in range(1, len(closes))]
