@@ -946,14 +946,18 @@ def _compute_regression_payload(tc_code: str, code: str) -> dict | None:
     if cached and cached.get("success"):
         return cached
 
-    dates, closes = _fetch_kline_hfq(tc_code, years=10)
+    _is_us_code  = tc_code.startswith("us") and not tc_code[2:].isdigit()
+    if _is_us_code:
+        dates, closes = _fetch_us_kline_em(code, years=10)
+    else:
+        dates, closes = _fetch_kline_hfq(tc_code, years=10)
     if not dates:
         return None
 
-    # Drop stocks listed less than 3 years ago (ETFs and HK stocks exempt)
+    # Drop stocks listed less than 3 years ago (ETFs, HK, and US stocks exempt)
     _is_etf_code = any(e["代码"] == code for e in _MAJOR_ETFS)
     _is_hk_code  = tc_code.startswith("hk")
-    if not _is_etf_code and not _is_hk_code:
+    if not _is_etf_code and not _is_hk_code and not _is_us_code:
         cutoff_3y = (datetime.now() - timedelta(days=3 * 365)).strftime("%Y-%m-%d")
         if dates[0] > cutoff_3y:
             return None
@@ -1299,6 +1303,99 @@ def _fetch_hk_stocks() -> list[dict]:
     if result:
         _set(cache_key, result)
     return result
+
+
+# ── US stocks ─────────────────────────────────────────────────────────────────
+
+def _fetch_us_stocks() -> list[dict]:
+    """Fetch US large-cap stocks from Eastmoney push2 clist.
+
+    Market cap (f20) is in USD; we convert to 亿美元.
+    Filter: >= 300亿美元 (US$30 billion).
+    """
+    cache_key = "us_stocks_v1"
+    cached = _get(cache_key, ttl=300)
+    if cached:
+        return cached
+
+    PAGE, MIN_MKT = 500, 300.0
+    stocks: list[dict] = []
+
+    for pn in range(1, 8):
+        url = (
+            "https://push2.eastmoney.com/api/qt/clist/get"
+            "?fid=f20&ob=1&po=1&np=1&ut=bd1d9ddb04089700cf9c27f6f7426281"
+            "&fltt=2&invt=2&wbp2u=|0|0|0|web&dect=1"
+            "&fields=f2,f3,f5,f12,f13,f14,f20,f100"
+            f"&pn={pn}&pz={PAGE}"
+            "&fs=m:105+t:1,m:106+t:1,m:107+t:1"
+        )
+        try:
+            r = _sess.get(url, timeout=15)
+            r.raise_for_status()
+            data  = r.json().get("data") or {}
+            items = data.get("diff") or []
+            if not items:
+                break
+
+            page_qualified = 0
+            for item in items:
+                ticker = str(item.get("f12") or "").strip()
+                name   = str(item.get("f14") or "").strip()
+                if not ticker or not name:
+                    continue
+                mktcap = float(item.get("f20") or 0) / 1e8
+                if mktcap < MIN_MKT:
+                    continue
+                page_qualified += 1
+                em_mkt = int(item.get("f13") or 105)
+                stocks.append({
+                    "代码":          ticker,
+                    "名称":          name,
+                    "市值亿":        round(mktcap, 1),
+                    "最新价":        round(float(item.get("f2") or 0), 2),
+                    "涨跌幅":        round(float(item.get("f3") or 0), 2),
+                    "industry_board": str(item.get("f100") or "") or "美股",
+                    "_tc":           f"us{ticker}",
+                    "_em_secid":     f"{em_mkt}.{ticker}",
+                })
+
+            total = data.get("total", 0)
+            if len(items) < PAGE or len(stocks) >= total:
+                break
+            # Once we're deep into the list and barely qualifying, stop
+            if pn >= 2 and page_qualified < 10:
+                break
+        except Exception as exc:
+            import sys; print(f"[us_stocks] page {pn}: {exc}", file=sys.stderr)
+            break
+
+    stocks.sort(key=lambda x: -x["市值亿"])
+    if stocks:
+        _set(cache_key, stocks)
+    return stocks
+
+
+def _fetch_us_kline_em(ticker: str, years: int = 10) -> tuple[list[str], list[float]]:
+    """Fetch adjusted daily kline for a US stock via yfinance."""
+    cache_key = f"us_kline_v2_{ticker}"
+    cached = _get(cache_key, ttl=86400)
+    if cached:
+        return cached.get("dates", []), cached.get("closes", [])
+    try:
+        import yfinance as yf
+        period = f"{years}y"
+        hist = yf.Ticker(ticker).history(period=period, auto_adjust=True)
+        if hist.empty:
+            return [], []
+        dates  = [str(d)[:10] for d in hist.index]
+        closes = [round(float(c), 4) for c in hist["Close"]]
+        if dates:
+            _set(cache_key, {"dates": dates, "closes": closes})
+        return dates, closes
+    except Exception as exc:
+        import sys; print(f"[us_kline] {ticker}: {exc}", file=sys.stderr)
+        return [], []
 
 
 # ── trend trading scan ────────────────────────────────────────────────────────
@@ -1718,6 +1815,43 @@ def get_hk_stocks():
     return jsonify({"success": True, "data": stocks, "total": len(stocks)})
 
 
+@app.route("/api/us_stocks")
+def get_us_stocks():
+    """返回市值 ≥ 300亿美元的美股列表，附 Eastmoney 实时行情。"""
+    stocks = _fetch_us_stocks()
+    if not stocks:
+        return jsonify({"success": False, "error": "获取美股数据失败"}), 503
+
+    # Refresh real-time price & chg% from Tencent (supports usXXXX codes)
+    tc_list = [s["_tc"] for s in stocks]
+    quotes: dict = {}
+    for i in range(0, len(tc_list), 200):
+        try:
+            r = _sess.get(f"https://qt.gtimg.cn/q={','.join(tc_list[i:i+200])}", timeout=8)
+            for line in r.text.strip().split(";\n"):
+                if '="' not in line: continue
+                var   = line.split("=")[0].strip()
+                tc    = var[2:] if var.startswith("v_") else var
+                inner = line.split('="', 1)[1].rstrip('";')
+                flds  = inner.split("~")
+                if len(flds) >= 5:
+                    price = float(flds[3] or 0)
+                    prev  = float(flds[4] or 0)
+                    chg   = round((price - prev) / prev * 100, 2) if prev else 0.0
+                    if price > 0:
+                        quotes[tc] = {"最新价": price, "涨跌幅": chg}
+        except Exception:
+            pass
+
+    for s in stocks:
+        q = quotes.get(s["_tc"], {})
+        if q.get("最新价"):
+            s["最新价"] = q["最新价"]
+            s["涨跌幅"] = q["涨跌幅"]
+
+    return jsonify({"success": True, "data": stocks, "total": len(stocks)})
+
+
 @app.route("/api/stock/<code>")
 def get_stock_data(code: str):
     try:
@@ -1725,8 +1859,8 @@ def get_stock_data(code: str):
         p = _compute_regression_payload(tc_code, code)
         if not p:
             return jsonify({"success": False, "error": "无历史数据"}), 404
-        # Merge PE payload (BaoStock peTTM + decomposition)
-        pe = _compute_pe_payload(tc_code, code)
+        # Skip PE for US stocks (BaoStock only covers A shares)
+        pe = None if tc_code.startswith("us") else _compute_pe_payload(tc_code, code)
         if pe:
             p = {**p, **pe}
         # Analyst consensus EPS forecasts (Eastmoney, best-effort)
@@ -2017,10 +2151,14 @@ def get_stock_data(code: str):
 
 
 def _resolve_tc(code: str) -> str:
-    if code.startswith(("sz", "sh", "hk")):
+    if code.startswith(("sz", "sh", "hk", "us")):
         return code
     if len(code) <= 5 and code.isdigit():
         return "hk" + code.zfill(5)
+    # US stock ticker: 1-6 uppercase letters (AAPL, GOOGL, BRK, etc.)
+    import re as _re
+    if _re.match(r'^[A-Z]{1,6}$', code):
+        return f"us{code}"
     # ETF 列表优先（含正确 sh/sz 前缀）
     for e in _MAJOR_ETFS:
         if e["代码"] == code:

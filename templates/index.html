@@ -461,7 +461,7 @@
   <div class="market-tabs">
     <button class="market-tab active" data-market="a"  onclick="setMarket('a')">🇨🇳 A股</button>
     <button class="market-tab"        data-market="hk" onclick="setMarket('hk')">🇭🇰 港股</button>
-    <button class="market-tab disabled" data-market="us" title="即将上线">🇺🇸 美股<span class="soon">即将</span></button>
+    <button class="market-tab" data-market="us" onclick="setMarket('us')">🇺🇸 美股</button>
   </div>
 </header>
 
@@ -925,6 +925,37 @@ async function loadList() {
 // ── filter / sort ────────────────────────────────────────────────────────────
 function onSearch() {
   const q = document.getElementById('searchBox').value.trim().toLowerCase();
+  if (_activeMarket === 'hk') {
+    const filtered = _hkStocks.filter(s => !q || s['代码'].toLowerCase().includes(q) || s['名称'].includes(q));
+    document.getElementById('countBadge').textContent = `显示 ${filtered.length} / ${_hkStocks.length} 只`;
+    const rows = filtered.map((s, i) => {
+      const chg = s['涨跌幅'] || 0, cls = chg >= 0 ? 'pos' : 'neg', sign = chg >= 0 ? '+' : '';
+      const price = s['最新价'] > 0 ? s['最新价'].toFixed(2) : '—';
+      return `<tr onclick="openModal('${s['代码']}','${s['名称']}')" style="cursor:pointer">
+        <td style="color:var(--muted)">${i+1}</td><td class="code">${s['代码']}</td>
+        <td>${s['名称']}</td><td><span class="mktcap">${s['市值亿'].toFixed(0)}</span></td>
+        <td>${price}</td><td class="${cls}">${price !== '—' ? sign+chg.toFixed(2)+'%' : '—'}</td>
+        <td><button class="btn-analyze" onclick="event.stopPropagation();openModal('${s['代码']}','${s['名称']}')">回归分析</button></td></tr>`;
+    }).join('');
+    setTbody(rows || `<tr><td colspan="7" style="text-align:center;padding:30px;color:var(--muted)">无匹配结果</td></tr>`);
+    return;
+  }
+  if (_activeMarket === 'us') {
+    const filtered = _usStocks.filter(s => !q || s['代码'].toLowerCase().includes(q) || s['名称'].includes(q));
+    document.getElementById('countBadge').textContent = `显示 ${filtered.length} / ${_usStocks.length} 只`;
+    const rows = filtered.map((s, i) => {
+      const chg = s['涨跌幅'] || 0, cls = chg >= 0 ? 'pos' : 'neg', sign = chg >= 0 ? '+' : '';
+      const price = s['最新价'] > 0 ? s['最新价'].toFixed(2) : '—';
+      const name = (s['名称'] || s['代码']).replace(/'/g, '&#39;');
+      return `<tr onclick="openModal('${s['代码']}','${name}')" style="cursor:pointer">
+        <td style="color:var(--muted)">${i+1}</td><td class="code" style="color:#e3b341">${s['代码']}</td>
+        <td>${name}</td><td><span class="mktcap">${s['市值亿'].toFixed(0)}</span></td>
+        <td>${price}</td><td class="${cls}">${price !== '—' ? sign+chg.toFixed(2)+'%' : '—'}</td>
+        <td><button class="btn-analyze" onclick="event.stopPropagation();openModal('${s['代码']}','${name}')">回归分析</button></td></tr>`;
+    }).join('');
+    setTbody(rows || `<tr><td colspan="7" style="text-align:center;padding:30px;color:var(--muted)">无匹配结果</td></tr>`);
+    return;
+  }
   view = allStocks.filter(s => !q || s['代码'].includes(q) || s['名称'].includes(q));
   renderTable();
 }
@@ -3767,6 +3798,7 @@ async function wlLoad() {
       wlRender();
       if (_activeMarket === 'a') renderTable();
       else if (_activeMarket === 'hk' && _hkStocks.length) renderHkTable();
+      else if (_activeMarket === 'us' && _usStocks.length) renderUsTable();
       if (typeof renderTrendResults === 'function' && trendAllResults.length) renderTrendResults();
       if (typeof _updateModalWlBtn === 'function') _updateModalWlBtn();
     }
@@ -3886,6 +3918,12 @@ const _MARKET_META = {
     lblTotMkt: '总市值（万亿港元）',
     lblAvgMkt: '平均市值（亿港元）',
   },
+  us: {
+    subtitle:  '市值 &gt; 300亿美元 &nbsp;|&nbsp; 前复权日线 10年 &nbsp;|&nbsp; 对数线性回归趋势评分',
+    lblTotal:  '符合条件公司',
+    lblTotMkt: '总市值（万亿美元）',
+    lblAvgMkt: '平均市值（亿美元）',
+  },
 };
 
 function _updateMarketMeta(m) {
@@ -3897,7 +3935,6 @@ function _updateMarketMeta(m) {
 }
 
 function setMarket(m) {
-  if (m === 'us') return;
   _activeMarket = m;
   document.querySelectorAll('.market-tab').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.market === m);
@@ -3924,6 +3961,10 @@ function setMarket(m) {
     document.getElementById('stockTblWrap').style.display = '';
     document.getElementById('etfTblWrap').style.display   = 'none';
     loadHkList();
+  } else if (m === 'us') {
+    document.getElementById('stockTblWrap').style.display = '';
+    document.getElementById('etfTblWrap').style.display   = 'none';
+    loadUsList();
   }
 
   // 趋势交易重新渲染
@@ -3969,6 +4010,48 @@ function renderHkTable() {
       <td>${price}</td>
       <td class="${cls}">${price !== '—' ? sign + chg.toFixed(2) + '%' : '—'}</td>
       <td><button class="btn-analyze" onclick="event.stopPropagation();openModal('${s['代码']}','${s['名称']}')">回归分析</button></td>
+    </tr>`;
+  }).join('');
+  setTbody(rows);
+}
+
+let _usStocks = [];
+
+async function loadUsList() {
+  setTbody(`<tr class="loading-row"><td colspan="7"><div class="spin"></div><div style="margin-top:12px;color:var(--muted)">正在获取美股数据…</div></td></tr>`);
+  document.getElementById('statsStrip').style.display = '';
+  try {
+    const r = await fetch('/api/us_stocks');
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    _usStocks = d.data;
+    const sumMkt = _usStocks.reduce((s, x) => s + x['市值亿'], 0);
+    document.getElementById('sTotal').textContent    = d.total;
+    document.getElementById('sTotalMkt').textContent = (sumMkt / 10000).toFixed(1);
+    document.getElementById('sAvgMkt').textContent   = (sumMkt / d.total).toFixed(0);
+    document.getElementById('sTime').textContent     = new Date().toLocaleTimeString('zh-CN');
+    renderUsTable();
+  } catch(e) {
+    setTbody(`<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--red)">加载失败：${e.message}</td></tr>`);
+  }
+}
+
+function renderUsTable() {
+  document.getElementById('countBadge').textContent = `显示 ${_usStocks.length} / ${_usStocks.length} 只`;
+  const rows = _usStocks.map((s, i) => {
+    const chg   = s['涨跌幅'] || 0;
+    const cls   = chg >= 0 ? 'pos' : 'neg';
+    const sign  = chg >= 0 ? '+' : '';
+    const price = s['最新价'] > 0 ? s['最新价'].toFixed(2) : '—';
+    const name  = (s['名称'] || s['代码']).replace(/'/g, '&#39;');
+    return `<tr onclick="openModal('${s['代码']}','${name}')" style="cursor:pointer">
+      <td style="color:var(--muted)">${i+1}</td>
+      <td class="code" style="color:#e3b341">${s['代码']}</td>
+      <td>${name}</td>
+      <td><span class="mktcap">${s['市值亿'].toFixed(0)}</span></td>
+      <td>${price}</td>
+      <td class="${cls}">${price !== '—' ? sign + chg.toFixed(2) + '%' : '—'}</td>
+      <td><button class="btn-analyze" onclick="event.stopPropagation();openModal('${s['代码']}','${name}')">回归分析</button></td>
     </tr>`;
   }).join('');
   setTbody(rows);
