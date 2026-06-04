@@ -3970,6 +3970,17 @@ function renderTrendResults() {
       ? `<span title="7日最高价低于30日最高价，动量惩罚×0.15" style="font-size:.65rem;color:#f85149;margin-left:4px">⚡</span>`
       : '';
 
+    // 回撤警示 badge：与 50日高点回撤超过 N×ATR 时显示
+    const ddBadge = (() => {
+      if (!s.max_high_50d || !s.last_close || !s.atr_50d) return '';
+      const dd  = (1 - s.last_close / s.max_high_50d) * 100;
+      const atr = s.atr_50d;
+      if (dd > 3 * atr) return `<span title="回撤${dd.toFixed(1)}% > 3×ATR，趋势严重受损" style="font-size:.72rem;margin-left:4px">⚠️</span>`;
+      if (dd > 2 * atr) return `<span title="回撤${dd.toFixed(1)}% > 2×ATR，趋势受损" style="font-size:.65rem;color:#f85149;margin-left:4px">⚡⚡</span>`;
+      if (dd > 1 * atr) return `<span title="回撤${dd.toFixed(1)}% > 1×ATR，注意观察" style="font-size:.65rem;color:#e3b341;margin-left:4px">⚡</span>`;
+      return '';
+    })();
+
     const inWlT  = _wlStocks.some(w => w.code === s.代码);
     const wlBtnT = `<button class="${inWlT ? 'btn-wl in-wl' : 'btn-wl'}" onclick="event.stopPropagation();wlToggle('${s.代码}','${s.名称.replace(/'/g,"&#39;")}')" title="${inWlT ? '移出自选' : '加入自选'}">${inWlT ? '−' : '+'}</button>`;
 
@@ -3993,7 +4004,7 @@ function renderTrendResults() {
     return `<tr onclick="${rowClick}"${trStyle}>
       <td class="rank">${isWlPin ? '⭐' : s._new_rank}${rankBadge}</td>
       <td class="code">${s.代码}${typeBadge}</td>
-      <td style="white-space:nowrap">${s.名称}${momBadge}${wlBtnT}<span
+      <td style="white-space:nowrap">${s.名称}${momBadge}${ddBadge}${wlBtnT}<span
         onmouseenter="showCorrPanel('${s.代码}',this)"
         onmouseleave="hideCorrPanel()"
         onclick="event.stopPropagation()"
