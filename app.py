@@ -1480,13 +1480,13 @@ def _fetch_recent_highs(tc_code: str) -> tuple[float, float, float, float, float
     Returns (0.0, 0.0, 0.0, 0.0) on failure.
     """
     # ── slow-changing kline data: cached 2 h ─────────────────────────────────
-    cache_key = f"rec_highs_v6_{tc_code}"
+    cache_key = f"rec_highs_v7_{tc_code}"
     cached = _get(cache_key, ttl=43200)
     rows = []   # needed for prev_vol below; stays [] on cache-hit path
     if cached is not None:
-        max_c50, last_hfq, atr = cached
+        max_c50, last_hfq, last_kline_close, atr = cached
     else:
-        max_c50, last_hfq, atr = 0.0, 0.0, 0.0
+        max_c50, last_hfq, last_kline_close, atr = 0.0, 0.0, 0.0, 0.0
         try:
             today = datetime.now()
             start = (today - timedelta(days=80)).strftime("%Y-%m-%d")  # ~55 trading days
@@ -1502,7 +1502,8 @@ def _fetch_recent_highs(tc_code: str) -> tuple[float, float, float, float, float
             dates  = [row[0] for row in rows if len(row) > 2 and row[2]]
             closes = [float(row[2]) for row in rows if len(row) > 2 and row[2]]
             if len(closes) >= 10:
-                max_c50  = max(closes[-50:]) if len(closes) >= 50 else max(closes)
+                max_c50           = max(closes[-50:]) if len(closes) >= 50 else max(closes)
+                last_kline_close  = closes[-1]   # last completed kline close (for drawdown)
                 today_str = today.strftime("%Y-%m-%d")
                 # 如果 kline 已包含今日收盘，用 closes[-2] 作为"昨收"基准，
                 # 避免前端再乘一次今日涨跌幅造成双重计算
@@ -1513,7 +1514,7 @@ def _fetch_recent_highs(tc_code: str) -> tuple[float, float, float, float, float
                 rets = [abs(closes[i] / closes[i-1] - 1) * 100
                         for i in range(1, len(closes))]
                 atr  = round(sum(rets[-50:]) / min(len(rets), 50), 2)
-                _set(cache_key, [round(max_c50, 4), round(last_hfq, 4), atr])
+                _set(cache_key, [round(max_c50, 4), round(last_hfq, 4), round(last_kline_close, 4), atr])
         except Exception:
             pass
 
@@ -1526,6 +1527,9 @@ def _fetch_recent_highs(tc_code: str) -> tuple[float, float, float, float, float
     cur_price = last_hfq
     chg_pct   = None
     prev_vol  = float(rows[-1][5]) if rows and len(rows[-1]) > 5 else -1
+    # last_kline_close may be 0 on cache-hit path with old 3-element cache; fall back to last_hfq
+    if not last_kline_close:
+        last_kline_close = last_hfq
     try:
         r = _sess.get(f"https://qt.gtimg.cn/q={tc_code}", timeout=5)
         for ln in r.text.strip().split(";\n"):
@@ -1547,9 +1551,9 @@ def _fetch_recent_highs(tc_code: str) -> tuple[float, float, float, float, float
     except Exception:
         pass
 
-    # max_high_50d_b = last actual close (for drawdown: yesterday vs 50d peak)
-    # Using intraday cur_price distorts drawdown when today is a big up day
-    return (round(max_c50, 4), round(last_hfq, 4), cur_price, atr, chg_pct)
+    # max_high_50d_b = last kline close (for drawdown: stable close-to-close vs 50d peak)
+    # Using intraday cur_price distorts drawdown when today is a big move
+    return (round(max_c50, 4), round(last_kline_close, 4), cur_price, atr, chg_pct)
 
 
 def _weekly_end_date() -> str:
@@ -2988,9 +2992,9 @@ def trend_screened():
             if mkt < mkt_min:                                      return False
             if mkt_max < float("inf") and mkt > mkt_max:          return False
             if excl_loss and pe <= 0:                              return False
-        if excl_reverse and h50 and lc and atr:
-            dd = (1 - lc / h50) * 100
-            if dd > 2 * atr:                                       return False
+        if excl_reverse and h50 and atr:
+            lc_dd = s.get("max_high_50d_b") or lc
+            if lc_dd and (1 - lc_dd / h50) * 100 > 2 * atr:      return False
         return True
 
     filtered = [s for s in results if _pass(s)]
@@ -3004,7 +3008,7 @@ def trend_screened():
 
     def momentum_penalty(s):
         h50 = s.get("max_high_50d", 0)
-        lc  = s.get("last_close", 0)
+        lc  = s.get("max_high_50d_b") or s.get("last_close", 0)
         atr = s.get("atr_50d", 0)
         if not h50 or not lc or not atr: return 1.0
         dd = (1 - lc / h50) * 100
@@ -3026,7 +3030,7 @@ def trend_screened():
     # ── 回撤标注 ────────────────────────────────────────────────────────────────
     def dd_warn(s):
         h50 = s.get("max_high_50d", 0)
-        lc  = s.get("last_close", 0)
+        lc  = s.get("max_high_50d_b") or s.get("last_close", 0)
         atr = s.get("atr_50d", 0)
         if not h50 or not lc or not atr: return ""
         dd = (1 - lc / h50) * 100
@@ -3038,7 +3042,7 @@ def trend_screened():
     out = []
     for i, s in enumerate(filtered, 1):
         h50 = s.get("max_high_50d", 0)
-        lc  = s.get("last_close", 0)
+        lc  = s.get("max_high_50d_b") or s.get("last_close", 0)
         dd  = round((1 - lc / h50) * 100, 1) if h50 and lc else 0.0
         out.append({
             "rank":       i,
