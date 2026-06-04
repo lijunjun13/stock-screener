@@ -3545,21 +3545,70 @@ function setMarket(m) {
   document.querySelectorAll('.market-tab').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.market === m);
   });
+
   // 子tab只在A股显示
   const subTabs = document.getElementById('aSubTabs');
   if (subTabs) subTabs.style.display = (m === 'a') ? '' : 'none';
-  // A股：恢复上次子tab；港股：直接显示个股表（港股无ETF子tab）
+
+  // 切换主列表数据
   if (m === 'a') {
-    setSubTab(_activeSubTab, false);
-  } else {
+    setSubTab(_activeSubTab, false);   // 恢复A股子tab状态
+    // 恢复 A股 stats strip
+    document.getElementById('statsStrip').style.display = '';
+    if (allStocks.length) renderTable();    // 已有数据直接渲染
+    else loadList();
+  } else if (m === 'hk') {
     document.getElementById('stockTblWrap').style.display = '';
     document.getElementById('etfTblWrap').style.display   = 'none';
+    loadHkList();
   }
+
   // 趋势交易重新渲染
   if (trendAllResults.length) renderTrendResults();
   // 选股分析只支持A股
   const screenBtn = document.getElementById('btnScreen');
   if (screenBtn) screenBtn.disabled = (m !== 'a');
+}
+
+let _hkStocks = [];
+async function loadHkList() {
+  setTbody(`<tr class="loading-row"><td colspan="7"><div class="spin"></div><div style="margin-top:12px;color:var(--muted)">正在获取港股数据…</div></td></tr>`);
+  // 更新 stats strip 标题
+  document.getElementById('statsStrip').style.display = '';
+  try {
+    const r = await fetch('/api/hk_stocks');
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+    _hkStocks = d.data;
+    const sumMkt = _hkStocks.reduce((s, x) => s + x['市值亿'], 0);
+    document.getElementById('sTotal').textContent    = d.total;
+    document.getElementById('sTotalMkt').textContent = (sumMkt / 10000).toFixed(1);
+    document.getElementById('sAvgMkt').textContent   = (sumMkt / d.total).toFixed(0);
+    document.getElementById('sTime').textContent     = new Date().toLocaleTimeString('zh-CN');
+    renderHkTable();
+  } catch(e) {
+    setTbody(`<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--red)">加载失败：${e.message}</td></tr>`);
+  }
+}
+
+function renderHkTable() {
+  document.getElementById('countBadge').textContent = `显示 ${_hkStocks.length} / ${_hkStocks.length} 只`;
+  const rows = _hkStocks.map((s, i) => {
+    const chg  = s['涨跌幅'] || 0;
+    const cls  = chg >= 0 ? 'pos' : 'neg';
+    const sign = chg >= 0 ? '+' : '';
+    const price = s['最新价'] > 0 ? s['最新价'].toFixed(2) : '—';
+    return `<tr onclick="openModal('${s['代码']}','${s['名称']}')" style="cursor:pointer">
+      <td style="color:var(--muted)">${i+1}</td>
+      <td class="code">${s['代码']}</td>
+      <td>${s['名称']}</td>
+      <td><span class="mktcap">${s['市值亿'].toFixed(0)}</span></td>
+      <td>${price}</td>
+      <td class="${cls}">${price !== '—' ? sign + chg.toFixed(2) + '%' : '—'}</td>
+      <td><button class="btn-analyze" onclick="event.stopPropagation();openModal('${s['代码']}','${s['名称']}')">回归分析</button></td>
+    </tr>`;
+  }).join('');
+  setTbody(rows);
 }
 
 function setSubTab(sub, doLoad = true) {

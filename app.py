@@ -1614,6 +1614,42 @@ def get_stocks():
         return jsonify({"success": False, "error": str(exc)}), 500
 
 
+@app.route("/api/hk_stocks")
+def get_hk_stocks():
+    """返回市值 ≥ 500亿港元的港股列表，附实时行情（价格、涨跌幅）。"""
+    MIN_MKT = 500.0  # 亿港元
+    stocks = [s for s in _fetch_hk_stocks() if s["市值亿"] >= MIN_MKT]
+    stocks.sort(key=lambda s: -s["市值亿"])
+
+    # 批量拉腾讯实时行情（价格 + 涨跌幅）
+    tc_list = [s["_tc"] for s in stocks]
+    quotes: dict = {}
+    BATCH = 200
+    for i in range(0, len(tc_list), BATCH):
+        try:
+            r = _sess.get(f"https://qt.gtimg.cn/q={','.join(tc_list[i:i+BATCH])}", timeout=8)
+            for line in r.text.strip().split(";\n"):
+                if '="' not in line: continue
+                var   = line.split("=")[0].strip()
+                tc    = var[2:] if var.startswith("v_") else var
+                inner = line.split('="', 1)[1].rstrip('";')
+                flds  = inner.split("~")
+                if len(flds) >= 5:
+                    price = float(flds[3] or 0)
+                    prev  = float(flds[4] or 0)
+                    chg   = round((price - prev) / prev * 100, 2) if prev else 0.0
+                    quotes[tc] = {"最新价": price, "涨跌幅": chg}
+        except Exception:
+            pass
+
+    for s in stocks:
+        q = quotes.get(s["_tc"], {})
+        s["最新价"] = q.get("最新价", 0)
+        s["涨跌幅"] = q.get("涨跌幅", s.get("涨跌幅", 0))
+
+    return jsonify({"success": True, "data": stocks, "total": len(stocks)})
+
+
 @app.route("/api/stock/<code>")
 def get_stock_data(code: str):
     try:
