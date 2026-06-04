@@ -1529,7 +1529,9 @@ def _fetch_recent_highs(tc_code: str) -> tuple[float, float, float, float, float
     except Exception:
         pass
 
-    return (round(max_c50, 4), round(max_c50, 4), cur_price, atr, chg_pct)
+    # max_high_50d_b = last actual close (for drawdown: yesterday vs 50d peak)
+    # Using intraday cur_price distorts drawdown when today is a big up day
+    return (round(max_c50, 4), round(last_hfq, 4), cur_price, atr, chg_pct)
 
 
 def _weekly_end_date() -> str:
