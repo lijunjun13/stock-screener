@@ -760,7 +760,7 @@
       </div>
       <div class="filter-group">
         <label title="斜率（%/周）不超过 N×ATR（ATR = 近50日日涨跌幅绝对值均值），过滤过热品种">斜率 ≤ N×ATR</label>
-        <input type="number" id="tFGainMax" placeholder="如 2" step="0.5" min="0" value="2">
+        <input type="number" id="tFGainMax" placeholder="如 4" step="0.5" min="0" value="4">
       </div>
       <div class="filter-group">
         <label>市值下限 (亿)</label>
@@ -4369,7 +4369,7 @@ function setTrendSort(col) {
 function clearTrendFilters() {
   document.getElementById('tFSlopeMin').value    = '1.5';
   document.getElementById('tFSlopeTopPct').value = '1';
-  document.getElementById('tFGainMax').value     = '2';
+  document.getElementById('tFGainMax').value     = '4';
   document.getElementById('tFR2').value         = '6';
   document.getElementById('tFMktMin').value   = '500';
   document.getElementById('tFMktMax').value   = '';
