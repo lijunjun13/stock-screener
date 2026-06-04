@@ -950,12 +950,16 @@ def _compute_regression_payload(tc_code: str, code: str) -> dict | None:
     if not dates:
         return None
 
-    # Drop stocks listed less than 3 years ago (ETFs exempt — shorter history is fine)
+    # Drop stocks listed less than 3 years ago (ETFs and HK stocks exempt)
     _is_etf_code = any(e["代码"] == code for e in _MAJOR_ETFS)
-    if not _is_etf_code:
+    _is_hk_code  = tc_code.startswith("hk")
+    if not _is_etf_code and not _is_hk_code:
         cutoff_3y = (datetime.now() - timedelta(days=3 * 365)).strftime("%Y-%m-%d")
         if dates[0] > cutoff_3y:
             return None
+
+    if len(dates) < 60:   # need at least ~60 trading days for a meaningful regression
+        return None
 
     arr   = np.array(closes, dtype=float)
     log_y = np.log(arr)
