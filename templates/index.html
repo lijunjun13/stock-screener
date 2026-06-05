@@ -480,7 +480,7 @@
     <option value="chg_desc">涨幅 ↓</option>
     <option value="chg_asc">涨幅 ↑</option>
   </select>
-  <button class="btn-refresh" onclick="loadList()">↻ 刷新</button>
+  <button class="btn-refresh" onclick="refreshCurrentMarket()">↻ 刷新</button>
   <button class="btn-screen" onclick="openScreener()">⚡ 选股分析</button>
   <button class="btn-screen" style="background:linear-gradient(135deg,#1a4f7f,#2b6cb0)" onclick="openTrend()">📈 趋势交易</button>
   <span class="count-badge" id="countBadge"></span>
@@ -986,10 +986,29 @@ function onSearch() {
   renderTable();
 }
 
+function refreshCurrentMarket() {
+  if (_activeMarket === 'hk') { loadHkList(); return; }
+  if (_activeMarket === 'us') {
+    if (_activeUsSubTab === 'etf') loadUsEtfList(); else loadUsList();
+    return;
+  }
+  loadList();
+}
+
 function onSort() {
   const v = document.getElementById('sortSel').value;
   const col = v.startsWith('mkt') ? '市值亿' : '涨跌幅';
   const asc = v.endsWith('asc');
+  if (_activeMarket === 'hk') {
+    _hkStocks.sort((a, b) => asc ? a[col] - b[col] : b[col] - a[col]);
+    renderHkTable();
+    return;
+  }
+  if (_activeMarket === 'us') {
+    _usStocks.sort((a, b) => asc ? a[col] - b[col] : b[col] - a[col]);
+    renderUsTable();
+    return;
+  }
   view.sort((a, b) => asc ? a[col] - b[col] : b[col] - a[col]);
   renderTable();
 }
