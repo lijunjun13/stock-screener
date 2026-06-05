@@ -10,7 +10,7 @@
 <title>全市场趋势交易量化系统</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
 <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
-<script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+<script src="https://unpkg.com/lightweight-charts@5.2.0/dist/lightweight-charts.standalone.production.js"></script>
 <style>
   :root {
     --bg:       #0d1117;
@@ -1535,8 +1535,8 @@ async function _loadShortTerm(code) {
 function closeModal(ev) {
   if (!ev || ev.target === document.getElementById('modalOverlay')) {
     document.getElementById('modalOverlay').classList.remove('open');
-    if (_lwcLTChart)   { try { _lwcLTChart.remove();   } catch(_) {} _lwcLTChart   = null; }
-    if (_lwcLTPEChart) { try { _lwcLTPEChart.remove();  } catch(_) {} _lwcLTPEChart = null; }
+    if (_lwcLTChart) { try { _lwcLTChart.remove(); } catch(_) {} _lwcLTChart = null; }
+    _lwcLTPEChart = null;
     ['stIntradayDiv','stDailyDiv','stWeeklyDiv'].forEach(id => {
       const st = _lwcState.get(id);
       if (st?.chart) try { st.chart.remove(); } catch(_) {}
@@ -1563,30 +1563,18 @@ function drawChart(d, name, code) {
   const divEl = document.getElementById('chartDiv');
   const _oldOverlay = document.getElementById('lwcPhaseOverlay');
   if (_oldOverlay) { if (_oldOverlay._unsubscribe) _oldOverlay._unsubscribe(); _oldOverlay.remove(); }
-  if (_lwcLTChart)   { try { _lwcLTChart.remove();   } catch(_) {} _lwcLTChart   = null; }
-  if (_lwcLTPEChart) { try { _lwcLTPEChart.remove();  } catch(_) {} _lwcLTPEChart = null; }
+  if (_lwcLTChart) { try { _lwcLTChart.remove(); } catch(_) {} _lwcLTChart = null; }
+  _lwcLTPEChart = null;
   divEl.innerHTML = '';
 
   const LS     = LightweightCharts.LineStyle;
   const totalH = divEl.clientHeight || 510;
   const totalW = divEl.clientWidth  || 800;
-  const priceH = hasPE ? Math.round(totalH * 0.65) : totalH;
-  const peH    = hasPE ? totalH - priceH - 1 : 0;
 
-  // ── 价格面板容器 ───────────────────────────────────────────────────────────
+  // LWC v5: 单一 chart，两个 pane 共享时间轴，不需要同步
   const priceDivEl = document.createElement('div');
-  priceDivEl.style.cssText = `width:100%;height:${priceH}px`;
+  priceDivEl.style.cssText = `width:100%;height:${totalH}px`;
   divEl.appendChild(priceDivEl);
-
-  let peDivEl = null;
-  if (hasPE) {
-    const sepEl = document.createElement('div');
-    sepEl.style.cssText = 'width:100%;height:1px;background:rgba(255,255,255,.15)';
-    divEl.appendChild(sepEl);
-    peDivEl = document.createElement('div');
-    peDivEl.style.cssText = `width:100%;height:${peH}px`;
-    divEl.appendChild(peDivEl);
-  }
 
   // ── 共享图表选项 ───────────────────────────────────────────────────────────
   const commonOpts = {
@@ -1599,22 +1587,16 @@ function drawChart(d, name, code) {
     handleScroll: true, handleScale: true,
   };
 
-  // ── 创建价格图（对数坐标）─────────────────────────────────────────────────
+  // ── 创建 chart（LWC v5，单实例双 pane）────────────────────────────────────
   const priceChart = LightweightCharts.createChart(priceDivEl, {
     ...commonOpts,
-    width: totalW, height: priceH,
+    width: totalW, height: totalH,
     rightPriceScale: { borderColor: '#30363d', mode: LightweightCharts.PriceScaleMode.Logarithmic },
   });
   _lwcLTChart = priceChart;
 
-  // ResizeObserver 同时调整两个 chart 的尺寸
   const ro = new ResizeObserver(() => {
-    const w  = divEl.clientWidth;
-    const h  = divEl.clientHeight;
-    const pH = hasPE ? Math.round(h * 0.65) : h;
-    const eH = hasPE ? h - pH - 1 : 0;
-    priceChart.applyOptions({ width: w, height: pH });
-    if (_lwcLTPEChart) _lwcLTPEChart.applyOptions({ width: w, height: eH });
+    priceChart.applyOptions({ width: divEl.clientWidth, height: divEl.clientHeight });
   });
   ro.observe(divEl);
 
@@ -1684,66 +1666,36 @@ function drawChart(d, name, code) {
     const PE_CLIP = 120;
     const ps = d.pe_stats;
 
-    const peChart = LightweightCharts.createChart(peDivEl, {
-      ...commonOpts,
-      width: totalW, height: peH,
-      rightPriceScale: { borderColor: '#30363d', mode: LightweightCharts.PriceScaleMode.Logarithmic },
-    });
-    _lwcLTPEChart = peChart;
-
-    const peSeries = peChart.addLineSeries({
+    // LWC v5 多 Pane：PE 系列加入 pane 1，与价格图共享同一时间轴，天然对齐
+    const peSeries = priceChart.addSeries(LightweightCharts.LineSeries, {
       color: 'rgba(210,168,255,.85)', lineWidth: 1.5,
       priceLineVisible: false, lastValueVisible: true, crosshairMarkerVisible: false,
       title: 'PE',
-    });
+      priceScaleId: 'pe',
+    }, 1);
     peSeries.setData(d.pe_dates
       .map((dt, i) => d.pe_vals[i] > 0 ? { time: _d2lwc(dt), value: Math.min(d.pe_vals[i], PE_CLIP) } : null)
       .filter(Boolean));
+    priceChart.priceScale('pe').applyOptions({
+      borderColor: '#30363d',
+      mode: LightweightCharts.PriceScaleMode.Logarithmic,
+    });
 
     if (ps?.median) {
       peSeries.createPriceLine({ price: ps.median, color: 'rgba(210,168,255,.4)',
         lineWidth: 1, lineStyle: LS.Dotted, axisLabelVisible: true });
     }
 
-    // ── 双向锚系列 + 逻辑索引同步 ───────────────────────────────────────────────
-    // PE 历史可能比价格数据长（如从2001年起），两图数据条数不同时逻辑索引错位。
-    // 解法：把 PE 的所有日期注入价格图、把价格的所有日期注入 PE 图，
-    // 使两图 time→index 映射完全一致，再用逻辑索引同步，任意缩放都对齐。
-    const _mkAnchor = chart => chart.addLineSeries({
-      color: 'transparent', lineWidth: 0,
-      priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
-      autoscaleInfoProvider: () => null,
-    });
-    // PE 日期 → 价格图
-    const _priceAnchor = _mkAnchor(priceChart);
-    _priceAnchor.setData(d.pe_dates.map(dt => ({ time: _d2lwc(dt), value: 0 })));
-    // 价格日期 → PE 图
-    const _peAnchor = _mkAnchor(peChart);
-    _peAnchor.setData(d.dates.map(dt => ({ time: _d2lwc(dt), value: 0 })));
-
-    let _syncLock = false;
-    priceChart.timeScale().subscribeVisibleLogicalRangeChange(range => {
-      if (_syncLock || !range) return;
-      _syncLock = true;
-      peChart.timeScale().setVisibleLogicalRange(range);
-      _syncLock = false;
-    });
-    peChart.timeScale().subscribeVisibleLogicalRangeChange(range => {
-      if (_syncLock || !range) return;
-      _syncLock = true;
-      priceChart.timeScale().setVisibleLogicalRange(range);
-      _syncLock = false;
-    });
+    // 调整两个 pane 的高度比例（65% 价格 / 35% PE）
+    const priceH = Math.round(totalH * 0.65);
+    const peH    = totalH - priceH;
+    try {
+      priceChart.panes()[0].applyOptions({ height: priceH });
+      priceChart.panes()[1].applyOptions({ height: peH });
+    } catch(_) {}
   }
 
-  // fitContent 展示全部可用数据，然后把 PE 图强制对齐到同一逻辑范围
   priceChart.timeScale().fitContent();
-  if (_lwcLTPEChart) {
-    requestAnimationFrame(() => {
-      const range = priceChart.timeScale().getVisibleLogicalRange();
-      if (range) _lwcLTPEChart.timeScale().setVisibleLogicalRange(range);
-    });
-  }
 }
 
 // ── year window toggle ────────────────────────────────────────────────────────
