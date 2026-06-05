@@ -10,7 +10,7 @@
 <title>全市场趋势交易量化系统</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
 <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
-<script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+<script src="https://unpkg.com/lightweight-charts@5.2.0/dist/lightweight-charts.standalone.production.js"></script>
 <style>
   :root {
     --bg:       #0d1117;
@@ -1190,7 +1190,7 @@ function _drawKline(divId, rows, maWindows, _ignored) {
   });
 
   // ── 蜡烛图 ───────────────────────────────────────────────────────────────
-  const candleSeries = chart.addCandlestickSeries({
+  const candleSeries = chart.addSeries(LightweightCharts.CandlestickSeries,{
     upColor: '#f85149', downColor: '#3fb950',
     borderUpColor: '#f85149', borderDownColor: '#3fb950',
     wickUpColor: '#f85149', wickDownColor: '#3fb950',
@@ -1199,7 +1199,7 @@ function _drawKline(divId, rows, maWindows, _ignored) {
 
   // ── MA 线 ────────────────────────────────────────────────────────────────
   const maSeries = wins.map((w, i) => {
-    const s = chart.addLineSeries({ color: maColors[i], lineWidth: 1,
+    const s = chart.addSeries(LightweightCharts.LineSeries,{ color: maColors[i], lineWidth: 1,
       priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
     s.setData(maData[i].map((v, idx) => v !== null ? { time: _d2lwc(rows[idx].date), value: v } : null).filter(Boolean));
     return s;
@@ -1208,14 +1208,14 @@ function _drawKline(divId, rows, maWindows, _ignored) {
   // ── ATR 止损带（滚动50根：橙虚线上沿 + 红虚线下沿）──────────────────────
   const LS_K = LightweightCharts.LineStyle;
   const { topData: atrTops, botData: atrBots } = _computeAtrBands(rows);
-  const stopTop = chart.addAreaSeries({
+  const stopTop = chart.addSeries(LightweightCharts.AreaSeries,{
     lineColor: 'rgba(251,146,60,.85)', topColor: 'rgba(251,146,60,.10)',
     bottomColor: 'rgba(251,146,60,0)', lineWidth: 1, lineStyle: LS_K.Dashed,
     priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
     autoscaleInfoProvider: () => null,
   });
   stopTop.setData(rows.map((r, i) => atrTops[i] != null ? { time: _d2lwc(r.date), value: atrTops[i] } : null).filter(Boolean));
-  const stopBot = chart.addLineSeries({
+  const stopBot = chart.addSeries(LightweightCharts.LineSeries,{
     color: 'rgba(239,68,68,.85)', lineWidth: 1, lineStyle: LS_K.Dashed,
     priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
     autoscaleInfoProvider: () => null,
@@ -1365,7 +1365,7 @@ function _drawIntraday(divId, data, isHk = false, dailyRows = null, isUs = false
   });
 
   // 基准线（Baseline series）：价格 + 颜色填充
-  const baseline = chart.addBaselineSeries({
+  const baseline = chart.addSeries(LightweightCharts.BaselineSeries,{
     priceScaleId: 'right',
     baseValue:    { type: 'price', price: ref },
     topLineColor:     '#f85149', topFillColor1:    'rgba(248,81,73,0.25)', topFillColor2:    'rgba(248,81,73,0.04)',
@@ -1378,7 +1378,7 @@ function _drawIntraday(divId, data, isHk = false, dailyRows = null, isUs = false
     lineStyle: LightweightCharts.LineStyle.Dashed, axisLabelVisible: false });
 
   // 均价线（VWAP）
-  const vwapLine = chart.addLineSeries({
+  const vwapLine = chart.addSeries(LightweightCharts.LineSeries,{
     priceScaleId: 'right', color: '#e3a148', lineWidth: 1.4,
     priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
   });
@@ -1401,7 +1401,7 @@ function _drawIntraday(divId, data, isHk = false, dailyRows = null, isUs = false
       const t0 = toSec(times[0]);
       const t1 = toSec(times[times.length - 1]);
       [[top3,'rgba(251,146,60,.9)','3×ATR'],[bot4,'rgba(239,68,68,.9)','4×ATR']].forEach(([price,color,lbl]) => {
-        const s = chart.addLineSeries({
+        const s = chart.addSeries(LightweightCharts.LineSeries,{
           priceScaleId: 'right', color, lineWidth: 1, lineStyle: LS_I.Dashed,
           priceLineVisible: false, lastValueVisible: true, crosshairMarkerVisible: false,
           priceFormat: { type: 'custom', formatter: v => `${lbl} ${v.toFixed(2)}` },
@@ -1413,12 +1413,12 @@ function _drawIntraday(divId, data, isHk = false, dailyRows = null, isUs = false
   }
 
   // 右轴显示涨跌幅（%）
-  const pctLine = chart.addLineSeries({
+  const pctLine = chart.addSeries(LightweightCharts.LineSeries,{
     priceScaleId: 'left', color: 'transparent', lineWidth: 0,
     priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
     priceFormat: { type: 'custom', formatter: v => (v >= 0 ? '+' : '') + v.toFixed(2) + '%' },
   });
-  chart.priceScale('left').applyOptions({ scaleMargins: { top: 0.05, bottom: 0.25 } });
+  pctLine.priceScale().applyOptions({ scaleMargins: { top: 0.05, bottom: 0.25 } });
 
   // Session boundary timestamps
   const _sessionFrom = toSec('09:30');
@@ -1431,13 +1431,13 @@ function _drawIntraday(divId, data, isHk = false, dailyRows = null, isUs = false
   // Filling every minute (09:30..16:00) gives uniform bar spacing, ensuring
   // data bars occupy the correct proportional width and baseline fill stops
   // at the last real data point.
-  const _anchor = chart.addLineSeries({
+  const _anchor = chart.addSeries(LightweightCharts.LineSeries,{
     priceScaleId: '_session_anchor',
     color: 'transparent', lineWidth: 0,
     priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
     autoscaleInfoProvider: () => null,
   });
-  chart.priceScale('_session_anchor').applyOptions({ visible: false });
+  _anchor.priceScale().applyOptions({ visible: false });
   {
     const ws = [];
     for (let t = _sessionFrom; t <= _sessionEnd; t += 60)
@@ -1453,11 +1453,11 @@ function _drawIntraday(divId, data, isHk = false, dailyRows = null, isUs = false
   pctLine.setData(pctData);
 
   // 成交量（底部）
-  const volSeries = chart.addHistogramSeries({
+  const volSeries = chart.addSeries(LightweightCharts.HistogramSeries,{
     priceScaleId: 'vol', priceFormat: { type: 'volume' },
     lastValueVisible: false, priceLineVisible: false,
   });
-  chart.priceScale('vol').applyOptions({ scaleMargins: { top: 0.78, bottom: 0 }, visible: false });
+  volSeries.priceScale().applyOptions({ scaleMargins: { top: 0.78, bottom: 0 }, visible: false });
   volSeries.setData(volumes.map((v, i) => ({
     time:  toSec(times[i]),
     value: +(v / 100).toFixed(2),
@@ -1535,8 +1535,8 @@ async function _loadShortTerm(code) {
 function closeModal(ev) {
   if (!ev || ev.target === document.getElementById('modalOverlay')) {
     document.getElementById('modalOverlay').classList.remove('open');
-    if (_lwcLTChart)   { try { _lwcLTChart.remove();  } catch(_) {} _lwcLTChart   = null; }
-    if (_lwcLTPEChart) { try { _lwcLTPEChart.remove(); } catch(_) {} _lwcLTPEChart = null; }
+    if (_lwcLTChart) { try { _lwcLTChart.remove(); } catch(_) {} _lwcLTChart = null; }
+    _lwcLTPEChart = null;
     ['stIntradayDiv','stDailyDiv','stWeeklyDiv'].forEach(id => {
       const st = _lwcState.get(id);
       if (st?.chart) try { st.chart.remove(); } catch(_) {}
@@ -1564,30 +1564,18 @@ function drawChart(d, name, code) {
   const _oldOverlay = document.getElementById('lwcPhaseOverlay');
   if (_oldOverlay) { if (_oldOverlay._unsubscribe) _oldOverlay._unsubscribe(); _oldOverlay.remove(); }
   if (_lwcLTChart) { try { _lwcLTChart.remove(); } catch(_) {} _lwcLTChart = null; }
-  _lwcLTPEChart = null;
+  _lwcLTPEChart = null; // v5: PE 在同一 chart 实例里，随 _lwcLTChart 一起销毁
   divEl.innerHTML = '';
 
   const LS     = LightweightCharts.LineStyle;
   const totalH = divEl.clientHeight || 510;
   const totalW = divEl.clientWidth  || 800;
-  const priceH = hasPE ? Math.round(totalH * 0.65) : totalH;
-  const peH    = hasPE ? totalH - priceH - 1 : 0;
 
+  // LWC v5: 单容器，多 pane 天然共享时间轴
   const priceDivEl = document.createElement('div');
-  priceDivEl.style.cssText = `width:100%;height:${priceH}px`;
+  priceDivEl.style.cssText = `width:100%;height:${totalH}px`;
   divEl.appendChild(priceDivEl);
 
-  let peDivEl = null;
-  if (hasPE) {
-    const sepEl = document.createElement('div');
-    sepEl.style.cssText = 'width:100%;height:1px;background:rgba(255,255,255,.15)';
-    divEl.appendChild(sepEl);
-    peDivEl = document.createElement('div');
-    peDivEl.style.cssText = `width:100%;height:${peH}px`;
-    divEl.appendChild(peDivEl);
-  }
-
-  // ── 共享图表选项 ───────────────────────────────────────────────────────────
   const commonOpts = {
     layout: { background: { color: '#161b22' }, textColor: '#c9d1d9' },
     grid:   { vertLines: { color: '#21262d' }, horzLines: { color: '#21262d' } },
@@ -1600,24 +1588,19 @@ function drawChart(d, name, code) {
 
   const priceChart = LightweightCharts.createChart(priceDivEl, {
     ...commonOpts,
-    width: totalW, height: priceH,
+    width: totalW, height: totalH,
     rightPriceScale: { borderColor: '#30363d', mode: LightweightCharts.PriceScaleMode.Logarithmic },
   });
   _lwcLTChart = priceChart;
 
   const ro = new ResizeObserver(() => {
-    const w  = divEl.clientWidth;
-    const h  = divEl.clientHeight;
-    const pH = hasPE ? Math.round(h * 0.65) : h;
-    const eH = hasPE ? h - pH - 1 : 0;
-    priceChart.applyOptions({ width: w, height: pH });
-    if (_lwcLTPEChart) _lwcLTPEChart.applyOptions({ width: w, height: eH });
+    priceChart.applyOptions({ width: divEl.clientWidth, height: divEl.clientHeight });
   });
   ro.observe(divEl);
 
   // 工具函数
   function _mkLine(color, width, style, opts = {}) {
-    return priceChart.addLineSeries({ color, lineWidth: width, lineStyle: style ?? LS.Solid,
+    return priceChart.addSeries(LightweightCharts.LineSeries,{ color, lineWidth: width, lineStyle: style ?? LS.Solid,
       priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
       autoscaleInfoProvider: () => null,   // 不参与 Y 轴自动缩放，以价格线为准
       ...opts });
@@ -1630,7 +1613,7 @@ function drawChart(d, name, code) {
   // ── 滚动50日 ATR 止损带（3×ATR 上沿 + 4×ATR 下沿，移动窗口）──────────────
   if (d.sl_3atr_arr && d.sl_4atr_arr) {
     // 上沿：AreaSeries，橙色填充向下（低透明度），仅视觉暗示条带区域
-    const stopTop = priceChart.addAreaSeries({
+    const stopTop = priceChart.addSeries(LightweightCharts.AreaSeries,{
       lineColor:   'rgba(251,146,60,.85)',
       topColor:    'rgba(251,146,60,.12)',
       bottomColor: 'rgba(251,146,60,0)',
@@ -1641,7 +1624,7 @@ function drawChart(d, name, code) {
     _setD(stopTop, d.dates, d.sl_3atr_arr);
 
     // 下沿：红色虚线
-    const stopBot = priceChart.addLineSeries({
+    const stopBot = priceChart.addSeries(LightweightCharts.LineSeries,{
       color: 'rgba(239,68,68,.85)', lineWidth: 1, lineStyle: LS.Dashed,
       priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
       autoscaleInfoProvider: () => null,
@@ -1650,7 +1633,7 @@ function drawChart(d, name, code) {
   }
 
   // ── 价格线 ──────────────────────────────────────────────────────────────
-  const priceSeries = priceChart.addLineSeries({ color: '#58a6ff', lineWidth: 1.5,
+  const priceSeries = priceChart.addSeries(LightweightCharts.LineSeries,{ color: '#58a6ff', lineWidth: 1.5,
     priceLineVisible: true, priceLineWidth: 1, priceLineStyle: LS.Dashed,
     priceLineColor: 'rgba(88,166,255,.35)',
     lastValueVisible: true, crosshairMarkerVisible: false });
@@ -1681,55 +1664,35 @@ function drawChart(d, name, code) {
     const PE_CLIP = 120;
     const ps = d.pe_stats;
 
-    const peChart = LightweightCharts.createChart(peDivEl, {
-      ...commonOpts,
-      width: totalW, height: peH,
-      rightPriceScale: { borderColor: '#30363d', mode: LightweightCharts.PriceScaleMode.Logarithmic },
-    });
-    _lwcLTPEChart = peChart;
-
-    const peSeries = peChart.addLineSeries({
+    // LWC v5: PE 系列加入 pane 1，与价格图天然共享时间轴
+    const peSeries = priceChart.addSeries(LightweightCharts.LineSeries, {
       color: 'rgba(210,168,255,.85)', lineWidth: 1.5,
       priceLineVisible: false, lastValueVisible: true, crosshairMarkerVisible: false,
       title: 'PE',
-    });
+    }, 1);
     peSeries.setData(d.pe_dates
       .map((dt, i) => d.pe_vals[i] > 0 ? { time: _d2lwc(dt), value: Math.min(d.pe_vals[i], PE_CLIP) } : null)
       .filter(Boolean));
+    peSeries.priceScale().applyOptions({
+      borderColor: '#30363d',
+      mode: LightweightCharts.PriceScaleMode.Logarithmic,
+    });
 
     if (ps?.median) {
       peSeries.createPriceLine({ price: ps.median, color: 'rgba(210,168,255,.4)',
         lineWidth: 1, lineStyle: LS.Dotted, axisLabelVisible: true });
     }
 
-    // 双向时间同步：用 LogicalRange 触发 + setVisibleRange 按时间同步
-    // 两图数据长度不同（PE历史可长达20年），按实际时间对齐避免逻辑索引错位
-    let _syncLock = false;
-    priceChart.timeScale().subscribeVisibleLogicalRangeChange(() => {
-      if (_syncLock) return;
-      const range = priceChart.timeScale().getVisibleRange();
-      if (!range) return;
-      _syncLock = true;
-      peChart.timeScale().setVisibleRange(range);
-      _syncLock = false;
-    });
-    peChart.timeScale().subscribeVisibleLogicalRangeChange(() => {
-      if (_syncLock) return;
-      const range = peChart.timeScale().getVisibleRange();
-      if (!range) return;
-      _syncLock = true;
-      priceChart.timeScale().setVisibleRange(range);
-      _syncLock = false;
-    });
+    // 设置两个 pane 的高度比例
+    const priceH = Math.round(totalH * 0.65);
+    const peH    = totalH - priceH;
+    try {
+      priceChart.panes()[0].applyOptions({ height: priceH });
+      priceChart.panes()[1].applyOptions({ height: peH });
+    } catch(_) {}
   }
 
   priceChart.timeScale().fitContent();
-  if (_lwcLTPEChart) {
-    requestAnimationFrame(() => {
-      const range = priceChart.timeScale().getVisibleRange();
-      if (range) _lwcLTPEChart.timeScale().setVisibleRange(range);
-    });
-  }
 }
 
 // ── year window toggle ────────────────────────────────────────────────────────
