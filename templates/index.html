@@ -1705,34 +1705,30 @@ function drawChart(d, name, code) {
         lineWidth: 1, lineStyle: LS.Dotted, axisLabelVisible: true });
     }
 
-    // ── 锚系列：把 price 全部日期注入 PE 图，使两图 timeScale 完全对齐 ──────────
-    // 两图数据长度不同（price 10年 vs PE 6-8年），若直接用逻辑索引同步
-    // 会因条数差异导致日期错位。注入锚系列后两图逻辑索引↔日期映射一致。
-    const _anchorSeries = peChart.addLineSeries({
-      color: 'transparent', lineWidth: 0,
-      priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
-      autoscaleInfoProvider: () => null,
-    });
-    _anchorSeries.setData(d.dates.map(dt => ({ time: _d2lwc(dt), value: 0 })));
-
-    // ── 同步两图的 timeScale（逻辑索引，两图现在 timeScale 完全一致）────────────
+    // ── 用实际日期同步两图横轴（不用逻辑索引，避免数据长度不同时的错位）────────
     let _syncLock = false;
-    priceChart.timeScale().subscribeVisibleLogicalRangeChange(range => {
-      if (_syncLock || range === null) return;
+    priceChart.timeScale().subscribeVisibleTimeRangeChange(range => {
+      if (_syncLock || !range) return;
       _syncLock = true;
-      peChart.timeScale().setVisibleLogicalRange(range);
+      peChart.timeScale().setVisibleRange(range);
       _syncLock = false;
     });
-    peChart.timeScale().subscribeVisibleLogicalRangeChange(range => {
-      if (_syncLock || range === null) return;
+    peChart.timeScale().subscribeVisibleTimeRangeChange(range => {
+      if (_syncLock || !range) return;
       _syncLock = true;
-      priceChart.timeScale().setVisibleLogicalRange(range);
+      priceChart.timeScale().setVisibleRange(range);
       _syncLock = false;
     });
   }
 
-  // fitContent 展示全部可用数据（minBarSpacing 已降至 0.1 允许日 K 极窄）
+  // fitContent 展示全部可用数据，然后把 PE 图强制对齐到同一时间范围
   priceChart.timeScale().fitContent();
+  if (_lwcLTPEChart) {
+    requestAnimationFrame(() => {
+      const range = priceChart.timeScale().getVisibleRange();
+      if (range) _lwcLTPEChart.timeScale().setVisibleRange(range);
+    });
+  }
 }
 
 // ── year window toggle ────────────────────────────────────────────────────────
