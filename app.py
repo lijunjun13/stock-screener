@@ -1306,6 +1306,60 @@ def _fetch_hk_stocks() -> list[dict]:
     return result
 
 
+# ── US ETFs ───────────────────────────────────────────────────────────────────
+
+_US_ETFS: list[dict] = [
+    # 宽基指数
+    {"代码": "SPY",  "名称": "SPDR S&P 500 ETF",          "类别": "宽基指数"},
+    {"代码": "VOO",  "名称": "Vanguard S&P 500 ETF",       "类别": "宽基指数"},
+    {"代码": "QQQ",  "名称": "Invesco Nasdaq-100 ETF",     "类别": "宽基指数"},
+    {"代码": "IWM",  "名称": "iShares Russell 2000 ETF",   "类别": "宽基指数"},
+    {"代码": "DIA",  "名称": "SPDR Dow Jones ETF",         "类别": "宽基指数"},
+    {"代码": "VTI",  "名称": "Vanguard Total Market ETF",  "类别": "宽基指数"},
+    {"代码": "MDY",  "名称": "SPDR S&P 400 Mid-Cap ETF",   "类别": "宽基指数"},
+    # 行业
+    {"代码": "XLK",  "名称": "Technology Select SPDR",     "类别": "行业ETF"},
+    {"代码": "SOXX", "名称": "iShares Semiconductor ETF",  "类别": "行业ETF"},
+    {"代码": "XLF",  "名称": "Financial Select SPDR",      "类别": "行业ETF"},
+    {"代码": "XLE",  "名称": "Energy Select SPDR",         "类别": "行业ETF"},
+    {"代码": "XLV",  "名称": "Health Care Select SPDR",    "类别": "行业ETF"},
+    {"代码": "XLI",  "名称": "Industrial Select SPDR",     "类别": "行业ETF"},
+    {"代码": "XLP",  "名称": "Consumer Staples SPDR",      "类别": "行业ETF"},
+    {"代码": "XLY",  "名称": "Consumer Discret. SPDR",     "类别": "行业ETF"},
+    {"代码": "XLRE", "名称": "Real Estate Select SPDR",    "类别": "行业ETF"},
+    {"代码": "ARKK", "名称": "ARK Innovation ETF",         "类别": "行业ETF"},
+    # 加密货币
+    {"代码": "IBIT", "名称": "iShares Bitcoin Trust",      "类别": "加密货币"},
+    {"代码": "FBTC", "名称": "Fidelity Wise Origin Bitcoin","类别": "加密货币"},
+    {"代码": "GBTC", "名称": "Grayscale Bitcoin Trust",    "类别": "加密货币"},
+    {"代码": "ETHA", "名称": "iShares Ethereum Trust",     "类别": "加密货币"},
+    # 大宗商品
+    {"代码": "GLD",  "名称": "SPDR Gold Shares",           "类别": "大宗商品"},
+    {"代码": "IAU",  "名称": "iShares Gold Trust",         "类别": "大宗商品"},
+    {"代码": "GDX",  "名称": "VanEck Gold Miners ETF",     "类别": "大宗商品"},
+    {"代码": "SLV",  "名称": "iShares Silver Trust",       "类别": "大宗商品"},
+    {"代码": "USO",  "名称": "United States Oil Fund",     "类别": "大宗商品"},
+    # 债券
+    {"代码": "TLT",  "名称": "iShares 20+ Year Treasury",  "类别": "债券ETF"},
+    {"代码": "AGG",  "名称": "iShares Core US Aggregate",  "类别": "债券ETF"},
+    {"代码": "HYG",  "名称": "iShares High Yield Bond",    "类别": "债券ETF"},
+    {"代码": "LQD",  "名称": "iShares Investment Grade",   "类别": "债券ETF"},
+    # 国际/新兴市场
+    {"代码": "EEM",  "名称": "iShares MSCI Emerging Mkts", "类别": "国际ETF"},
+    {"代码": "EFA",  "名称": "iShares MSCI EAFE ETF",      "类别": "国际ETF"},
+    {"代码": "FXI",  "名称": "iShares China Large-Cap",    "类别": "国际ETF"},
+    {"代码": "KWEB", "名称": "KraneShares China Internet", "类别": "国际ETF"},
+    {"代码": "EWJ",  "名称": "iShares MSCI Japan ETF",     "类别": "国际ETF"},
+    {"代码": "EWZ",  "名称": "iShares MSCI Brazil ETF",    "类别": "国际ETF"},
+    # 杠杆/反向
+    {"代码": "TQQQ", "名称": "ProShares UltraPro QQQ 3×",  "类别": "杠杆ETF"},
+    {"代码": "SOXL", "名称": "Direxion Semi Bull 3×",      "类别": "杠杆ETF"},
+    {"代码": "UPRO", "名称": "ProShares UltraPro S&P 3×",  "类别": "杠杆ETF"},
+    {"代码": "SQQQ", "名称": "ProShares UltraPro Short QQQ","类别": "杠杆ETF"},
+    {"代码": "SPXS", "名称": "Direxion S&P 500 Bear 3×",   "类别": "杠杆ETF"},
+]
+
+
 # ── US stocks ─────────────────────────────────────────────────────────────────
 
 # Major non-S&P-500 US-listed stocks (large ADRs + other large caps) to supplement the S&P 500 list
@@ -1938,6 +1992,26 @@ def etf_quotes():
             "涨跌幅": q.get("chg_pct", 0),
             "成交量": q.get("volume", 0),
             "成交额": q.get("amount", 0),
+        })
+    return jsonify({"success": True, "data": result})
+
+
+@app.route("/api/us_etf_quotes")
+def us_etf_quotes():
+    """Return US ETF quotes via yfinance batch API."""
+    tickers = [e["代码"] for e in _US_ETFS]
+    quotes  = _yf_quote_batch(tickers)
+    result  = []
+    for e in _US_ETFS:
+        q     = quotes.get(e["代码"], {})
+        price = float(q.get("regularMarketPrice") or 0)
+        chg   = float(q.get("regularMarketChangePercent") or 0)
+        result.append({
+            "代码":   e["代码"],
+            "名称":   e["名称"],
+            "类别":   e["类别"],
+            "价格":   round(price, 2),
+            "涨跌幅": round(chg, 2),
         })
     return jsonify({"success": True, "data": result})
 
