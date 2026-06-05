@@ -1513,8 +1513,13 @@ def _fetch_us_kline_em(ticker: str, years: int = 10) -> tuple[list[str], list[fl
         K = _us_hfq_k(raw)
         # Backfill the shared K cache so _yf_ohlcv doesn't need a second 10yr fetch
         _set(f"us_hfq_k_{ticker}", K)
-        dates  = [str(d)[:10] for d in raw.index]
-        closes = [round(float(c) * K, 4) for c in raw["Adj Close"]]
+        import math as _math
+        dates, closes = [], []
+        for d, ac in zip(raw.index, raw["Adj Close"]):
+            ac_f = float(ac)
+            if not _math.isnan(ac_f):
+                dates.append(str(d)[:10])
+                closes.append(round(ac_f * K, 4))
         if dates:
             _set(cache_key, {"dates": dates, "closes": closes})
         return dates, closes
@@ -2568,11 +2573,18 @@ def _yf_ohlcv(ticker: str, start: str, end: str, interval: str) -> list[dict]:
             return []
         # Use 10yr-based K so out-of-window splits (e.g. GOOGL 20:1 in 2022)
         # are captured even when the chart window is only 6 months or 2 years.
+        import math
         K = _us_hfq_k_cached(ticker)
         rows = []
         for ts, row in raw.iterrows():
             c   = float(row["Close"])
             ac  = float(row["Adj Close"])
+            # Yahoo Finance sometimes returns NaN for Adj Close on the latest
+            # bar; fall back to actual Close so the bar isn't skipped/broken.
+            if math.isnan(ac):
+                ac = c
+            if math.isnan(c) or c <= 0:
+                continue
             # per-bar dividend ratio to keep OHLC consistent with 后复权 close
             dr  = ac / c if c > 0 else 1.0
             rows.append({
