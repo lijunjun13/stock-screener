@@ -391,6 +391,93 @@ def _fetch_cn10y_yield() -> float:
     """
     return _CN10Y_RATE
 
+def _fetch_hk_consensus_yf(code: str) -> dict:
+    """Analyst consensus for HK stocks via yfinance.
+    EPS estimates are in the financial reporting currency (CNY/USD); we convert
+    to HKD using trailingEps as the exchange-rate anchor, same as PE calc.
+    Returns the same dict shape as _fetch_consensus_eps."""
+    cache_key = f"hk_consensus_yf_v1_{code}"
+    cached = _get(cache_key, ttl=3600 * 12)
+    if cached is not None:
+        return cached
+
+    empty = {"forecasts": [], "org_num": None, "buy_num": None,
+             "add_num": None, "target_high": None, "target_low": None}
+    try:
+        import yfinance as yf, math as _m
+        from datetime import datetime as _dt
+
+        numeric = code.lstrip("0") or "0"
+        t       = yf.Ticker(numeric.zfill(4) + ".HK")
+        info    = t.info
+
+        # FX scale: financial currency → HKD (same as _compute_pe_payload_hk)
+        trailing_hkd = float(info.get("trailingEps") or 0)
+        ann          = t.income_stmt
+        eps_row = (ann.loc["Diluted EPS"] if "Diluted EPS" in ann.index
+                   else ann.loc["Basic EPS"] if "Basic EPS" in ann.index else None)
+        # sort_index() ensures ascending order; iloc[-1] = most recent annual EPS
+        recent_fccy  = float(eps_row.dropna().sort_index().iloc[-1]) if eps_row is not None else 0
+        fx = (trailing_hkd / recent_fccy
+              if trailing_hkd > 0 and recent_fccy > 0 else 1.0)
+
+        # Annual EPS estimates from yfinance (0y = current FY, +1y = next FY)
+        ee = t.earnings_estimate
+        forecasts = []
+        cur_year  = _dt.now().year
+        for period, offset in [("0y", 0), ("+1y", 1)]:
+            if period not in ee.index:
+                continue
+            row = ee.loc[period]
+            avg_fccy = float(row.get("avg") or 0)
+            if avg_fccy <= 0 or _m.isnan(avg_fccy):
+                continue
+            eps_hkd = round(avg_fccy * fx, 2)
+            n_analysts = int(row.get("numberOfAnalysts") or 0)
+            forecasts.append({
+                "year":           cur_year + offset,
+                "year_mark":      "E",
+                "eps":            eps_hkd,
+                "forward_pe":     None,
+                "n_analysts":     n_analysts,
+            })
+
+        # Analyst price targets (already in HKD)
+        pt = t.analyst_price_targets
+        target_high = round(float(pt.get("high") or 0), 2) or None
+        target_low  = round(float(pt.get("low")  or 0), 2) or None
+        target_mean = round(float(pt.get("mean") or 0), 2) or None
+
+        # Recommendation summary for buy/add counts
+        buy_num = add_num = None
+        try:
+            rs = t.recommendations_summary
+            if rs is not None and not rs.empty:
+                latest = rs.iloc[0]
+                buy_num = int(latest.get("strongBuy", 0) + latest.get("buy", 0))
+                add_num = int(latest.get("hold", 0))
+        except Exception:
+            pass
+
+        org_num = max((f.get("n_analysts") or 0) for f in forecasts) if forecasts else None
+
+        result = {
+            "forecasts":   forecasts,
+            "org_num":     org_num,
+            "buy_num":     buy_num,
+            "add_num":     add_num,
+            "target_high": target_high,
+            "target_low":  target_low,
+            "target_mean": target_mean,
+        }
+        _set(cache_key, result)
+        return result
+    except Exception as exc:
+        import sys; print(f"[hk_consensus_yf] {code}: {exc}", file=sys.stderr)
+        _set(cache_key, empty)
+        return empty
+
+
 def _fetch_consensus_eps(code: str) -> dict:
     """Return analyst consensus data (EPS forecasts + ratings + target price).
 
@@ -2287,18 +2374,13 @@ def get_stock_data(code: str):
             pe = _compute_pe_payload(tc_code, code)
         if pe:
             p = {**p, **pe}
-        # Analyst consensus EPS forecasts (Eastmoney, best-effort)
-        # For HK stocks, try HK code first; if empty, fall back to A-share sibling
-        # (e.g. 00939→601939 for dual-listed H+A shares)
-        consensus = _fetch_consensus_eps(code)
-        if not consensus.get("forecasts") and tc_code.startswith("hk"):
-            hk_num = code.lstrip("0")
-            a_candidates = [f"6{hk_num.zfill(5)}", f"0{hk_num.zfill(5)}"]
-            for a_code in a_candidates:
-                c2 = _fetch_consensus_eps(a_code)
-                if c2.get("forecasts"):
-                    consensus = c2
-                    break
+        # Analyst consensus EPS forecasts
+        # HK: yfinance (native HK analyst data, EPS converted to HKD)
+        # A-share / ETF: Eastmoney RPT_WEB_RESPREDICT
+        if tc_code.startswith("hk"):
+            consensus = _fetch_hk_consensus_yf(code)
+        else:
+            consensus = _fetch_consensus_eps(code)
         # Compute forward PE using actual (non-后复权) market price
         actual_price = _fetch_realtime_price(tc_code)
         if actual_price and actual_price > 0:
