@@ -1088,43 +1088,147 @@ def _compute_pe_payload_hk(code: str) -> dict | None:
         return None
 
 
+def _fetch_us_eps_edgar(ticker: str) -> list[tuple[str, float]]:
+    """Fetch annual diluted EPS from SEC EDGAR XBRL API.
+    Returns [(end_date, eps), ...] oldest→newest, unadjusted (same basis as
+    yfinance auto_adjust=False prices).  Cached 7 days.
+    Uses fp='FY' + fy-grouping to exclude within-year cumulative rows."""
+    ck = f"edgar_eps_v1_{ticker}"
+    cached = _get(ck, ttl=86400 * 7)
+    if cached:
+        return cached
+    try:
+        # Step 1: ticker → CIK (cached 30 days)
+        cik_map = _get("edgar_cik_map_v1", ttl=86400 * 30)
+        if not cik_map:
+            r = _sess.get(
+                "https://www.sec.gov/files/company_tickers.json",
+                headers={"User-Agent": "stockscreener contact@example.com"},
+                timeout=15,
+            )
+            cik_map = {v["ticker"]: str(v["cik_str"]).zfill(10)
+                       for v in r.json().values()}
+            _set("edgar_cik_map_v1", cik_map)
+
+        # Some tickers use dots in EDGAR (e.g., BRK-B → BRK-B)
+        cik = cik_map.get(ticker) or cik_map.get(ticker.replace("-", "."))
+        if not cik:
+            return []
+
+        # Step 2: fetch XBRL company facts
+        r = _sess.get(
+            f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json",
+            headers={"User-Agent": "stockscreener contact@example.com"},
+            timeout=20,
+        )
+        facts = r.json()["facts"].get("us-gaap", {})
+        eps_tag = facts.get("EarningsPerShareDiluted") or facts.get("EarningsPerShareBasic")
+        if not eps_tag:
+            return []
+
+        rows = eps_tag["units"].get("USD/shares", [])
+
+        # Step 3: 10-K fp=FY only; group by fy; keep latest end+filed per fy
+        best: dict = {}
+        for x in rows:
+            if x.get("form") != "10-K" or x.get("fp") != "FY":
+                continue
+            fy = x.get("fy")
+            if fy is None:
+                continue
+            prev = best.get(fy)
+            if prev is None or (x["end"], x["filed"]) > (prev["end"], prev["filed"]):
+                best[fy] = x
+
+        result = [(x["end"], float(x["val"]))
+                  for x in sorted(best.values(), key=lambda x: x["end"])
+                  if x["val"] is not None]
+        if result:
+            _set(ck, result)
+        return result
+    except Exception as exc:
+        import sys; print(f"[edgar_eps] {ticker}: {exc}", file=sys.stderr)
+        return []
+
+
 def _compute_pe_payload_us(code: str) -> dict | None:
-    """Compute historical PE for US stocks via yfinance annual EPS + actual prices.
-    currency=USD for both price and EPS, so no FX conversion needed."""
-    cache_key = f"pe_us_v1_{code}"
+    """Compute historical PE for US stocks.
+    EPS source: SEC EDGAR XBRL (up to 15+ years) with yfinance as fallback.
+    Prices: yfinance auto_adjust=False (actual, non-split-adjusted).
+    Both EPS and price are unadjusted so PE is consistent across splits."""
+    cache_key = f"pe_us_v2_{code}"
     cached = _get(cache_key, ttl=86400)
     if cached:
         return cached
     try:
         import yfinance as yf, math as _math
-        t = yf.Ticker(code)
-        ann = t.income_stmt
-        if "Diluted EPS" in ann.index:
-            eps_s = ann.loc["Diluted EPS"].dropna().sort_index()
-        elif "Basic EPS" in ann.index:
-            eps_s = ann.loc["Basic EPS"].dropna().sort_index()
-        else:
-            return None
-        if len(eps_s) < 2:
-            return None
-        eps_dates = [str(d)[:10] for d in eps_s.index]
-        eps_vals  = [float(v) for v in eps_s.values]
 
-        hist = t.history(period="max", auto_adjust=False, actions=False)
+        # ── EPS: EDGAR first (15+ years), fall back to yfinance (4-5 years) ──
+        edgar_eps = _fetch_us_eps_edgar(code)
+        if len(edgar_eps) >= 2:
+            eps_dates = [d for d, _ in edgar_eps]
+            eps_vals  = [v for _, v in edgar_eps]
+        else:
+            t = yf.Ticker(code)
+            ann = t.income_stmt
+            if "Diluted EPS" in ann.index:
+                eps_s = ann.loc["Diluted EPS"].dropna().sort_index()
+            elif "Basic EPS" in ann.index:
+                eps_s = ann.loc["Basic EPS"].dropna().sort_index()
+            else:
+                return None
+            if len(eps_s) < 2:
+                return None
+            eps_dates = [str(d)[:10] for d in eps_s.index]
+            eps_vals  = [float(v) for v in eps_s.values]
+
+        t = yf.Ticker(code)
+
+        # Use actual (unadjusted) prices. To handle stock splits consistently,
+        # both price and EPS are divided by "splits occurring AFTER this date"
+        # so they're always on the same per-share basis.
+        # PE = (price / splits_after_price_date) / (eps / splits_after_eps_date)
+        hist = t.history(period="max", auto_adjust=False, actions=True)
         if hist.empty:
             return None
+
+        # Build sorted split list: date_str → ratio
+        raw_splits = hist["Stock Splits"].dropna()
+        raw_splits = raw_splits[raw_splits > 0].sort_index()
+        splits_list = [(str(ts)[:10], float(ratio)) for ts, ratio in raw_splits.items()]
+
+        def _splits_after(date_str: str) -> float:
+            """Product of all split ratios that occurred STRICTLY AFTER date_str."""
+            f = 1.0
+            for sd, ratio in splits_list:
+                if sd > date_str:
+                    f *= ratio
+            return f
+
+        # Adjust EPS to "current shares" basis (divide by splits after eps date)
+        adj_eps: dict[str, float] = {
+            d: v / _splits_after(d) for d, v in zip(eps_dates, eps_vals)
+        }
+        adj_eps_dates = eps_dates  # same dates, values now normalised
 
         pe_dates: list[str]   = []
         pe_vals:  list[float] = []
         for ts, row in hist.iterrows():
-            price = float(row["Close"])
-            if _math.isnan(price) or price <= 0:
+            actual_price = float(row["Close"])
+            if _math.isnan(actual_price) or actual_price <= 0:
                 continue
             date_str = str(ts)[:10]
+            # yfinance auto_adjust=False prices are already split-adjusted to
+            # current-share basis; only EPS needs normalisation via _splits_after
+            price = actual_price
+            # Most recent adjusted EPS on or before this date
             eps_v = None
-            for d, v in zip(eps_dates, eps_vals):
-                if d <= date_str and v > 0 and not _math.isnan(v):
-                    eps_v = v
+            for d in reversed(adj_eps_dates):
+                if d <= date_str:
+                    v = adj_eps[d]
+                    if v > 0 and not _math.isnan(v):
+                        eps_v = v
+                    break
             if eps_v is None:
                 continue
             pe = round(price / eps_v, 2)
