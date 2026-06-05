@@ -1705,16 +1705,22 @@ function drawChart(d, name, code) {
         lineWidth: 1, lineStyle: LS.Dotted, axisLabelVisible: true });
     }
 
-    // ── 用实际日期同步两图横轴（不用逻辑索引，避免数据长度不同时的错位）────────
+    // ── 用实际日期同步两图横轴 ──────────────────────────────────────────────────
+    // 触发器用 LogicalRange（缩放/滚动都稳定触发），实际同步用 setVisibleRange
+    // 按时间同步，避免两图数据条数不同时逻辑索引错位的问题。
     let _syncLock = false;
-    priceChart.timeScale().subscribeVisibleTimeRangeChange(range => {
-      if (_syncLock || !range) return;
+    priceChart.timeScale().subscribeVisibleLogicalRangeChange(() => {
+      if (_syncLock) return;
+      const range = priceChart.timeScale().getVisibleRange();
+      if (!range) return;
       _syncLock = true;
       peChart.timeScale().setVisibleRange(range);
       _syncLock = false;
     });
-    peChart.timeScale().subscribeVisibleTimeRangeChange(range => {
-      if (_syncLock || !range) return;
+    peChart.timeScale().subscribeVisibleLogicalRangeChange(() => {
+      if (_syncLock) return;
+      const range = peChart.timeScale().getVisibleRange();
+      if (!range) return;
       _syncLock = true;
       priceChart.timeScale().setVisibleRange(range);
       _syncLock = false;
