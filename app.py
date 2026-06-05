@@ -834,6 +834,80 @@ def _fetch_pe_history(
     return dates, pes, loss_dates
 
 
+def _compute_pe_payload_hk(code: str) -> dict | None:
+    """Compute historical PE for HK stocks using yfinance annual EPS + actual prices.
+    Returns the same payload structure as _compute_pe_payload. Cached 1 day."""
+    cache_key = f"pe_hk_{code}"
+    cached = _get(cache_key, ttl=86400)
+    if cached:
+        return cached
+    try:
+        import yfinance as yf, math as _math
+        numeric  = code.lstrip("0") or "0"
+        yf_tick  = numeric.zfill(4) + ".HK"
+        t        = yf.Ticker(yf_tick)
+        ann      = t.income_stmt
+        if "Diluted EPS" in ann.index:
+            eps_s = ann.loc["Diluted EPS"].dropna().sort_index()
+        elif "Basic EPS" in ann.index:
+            eps_s = ann.loc["Basic EPS"].dropna().sort_index()
+        else:
+            return None
+        if len(eps_s) < 2:
+            return None
+        eps_dates = [str(d)[:10] for d in eps_s.index]
+        eps_vals  = [float(v) for v in eps_s.values]
+
+        hist = t.history(period="max", auto_adjust=False, actions=False)
+        if hist.empty:
+            return None
+
+        pe_dates: list[str]   = []
+        pe_vals:  list[float] = []
+        for ts, row in hist.iterrows():
+            price = float(row["Close"])
+            if _math.isnan(price) or price <= 0:
+                continue
+            date_str = str(ts)[:10]
+            # most recent annual EPS at or before this price date
+            eps_v = None
+            for d, v in zip(eps_dates, eps_vals):
+                if d <= date_str and v > 0 and not _math.isnan(v):
+                    eps_v = v
+            if eps_v is None:
+                continue
+            pe = round(price / eps_v, 2)
+            if 0 < pe < 500:
+                pe_dates.append(date_str)
+                pe_vals.append(pe)
+
+        if len(pe_vals) < 50:
+            return None
+
+        arr_pe        = np.array(pe_vals, dtype=float)
+        pe_current    = float(pe_vals[-1])
+        pe_percentile = float(np.mean(arr_pe < pe_current) * 100)
+        payload: dict = {
+            "pe_dates":   pe_dates,
+            "pe_vals":    pe_vals,
+            "loss_ranges": [],
+            "pe_stats": {
+                "current":    round(pe_current, 1),
+                "median":     round(float(np.median(arr_pe)),          1),
+                "p10":        round(float(np.percentile(arr_pe, 10)),  1),
+                "p25":        round(float(np.percentile(arr_pe, 25)),  1),
+                "p75":        round(float(np.percentile(arr_pe, 75)),  1),
+                "p90":        round(float(np.percentile(arr_pe, 90)),  1),
+                "percentile": round(pe_percentile, 1),
+            },
+        }
+        _set(cache_key, payload)
+        return payload
+    except Exception as exc:
+        import sys; print(f"[pe_hk] {code}: {exc}", file=sys.stderr)
+        return None
+
+
 def _compute_pe_payload(tc_code: str, code: str) -> dict | None:
     """Fetch PE history + decompose price return into EPS-growth vs PE-expansion."""
     cache_key = f"pe_{code}"
@@ -2111,8 +2185,13 @@ def get_stock_data(code: str):
         p = _compute_regression_payload(tc_code, code)
         if not p:
             return jsonify({"success": False, "error": "无历史数据"}), 404
-        # Skip PE for US stocks (BaoStock only covers A shares)
-        pe = None if tc_code.startswith("us") else _compute_pe_payload(tc_code, code)
+        # PE history: A-shares via BaoStock, HK via yfinance annual EPS, US: skip
+        if tc_code.startswith("us"):
+            pe = None
+        elif tc_code.startswith("hk"):
+            pe = _compute_pe_payload_hk(code)
+        else:
+            pe = _compute_pe_payload(tc_code, code)
         if pe:
             p = {**p, **pe}
         # Analyst consensus EPS forecasts (Eastmoney, best-effort)
@@ -3552,6 +3631,7 @@ def analyze_chart(code: str):
                 client = _AzureOpenAI(
                     azure_endpoint=endpoint, api_key=api_key,
                     api_version="2024-03-01-preview",
+                    timeout=60,
                 )
                 messages = [{"role": "user", "content": [
                     {"type": "image_url", "image_url": {"url": image_b64}},
