@@ -1705,34 +1705,43 @@ function drawChart(d, name, code) {
         lineWidth: 1, lineStyle: LS.Dotted, axisLabelVisible: true });
     }
 
-    // ── 用实际日期同步两图横轴 ──────────────────────────────────────────────────
-    // 触发器用 LogicalRange（缩放/滚动都稳定触发），实际同步用 setVisibleRange
-    // 按时间同步，避免两图数据条数不同时逻辑索引错位的问题。
+    // ── 双向锚系列 + 逻辑索引同步 ───────────────────────────────────────────────
+    // PE 历史可能比价格数据长（如从2001年起），两图数据条数不同时逻辑索引错位。
+    // 解法：把 PE 的所有日期注入价格图、把价格的所有日期注入 PE 图，
+    // 使两图 time→index 映射完全一致，再用逻辑索引同步，任意缩放都对齐。
+    const _mkAnchor = chart => chart.addLineSeries({
+      color: 'transparent', lineWidth: 0,
+      priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+      autoscaleInfoProvider: () => null,
+    });
+    // PE 日期 → 价格图
+    const _priceAnchor = _mkAnchor(priceChart);
+    _priceAnchor.setData(d.pe_dates.map(dt => ({ time: _d2lwc(dt), value: 0 })));
+    // 价格日期 → PE 图
+    const _peAnchor = _mkAnchor(peChart);
+    _peAnchor.setData(d.dates.map(dt => ({ time: _d2lwc(dt), value: 0 })));
+
     let _syncLock = false;
-    priceChart.timeScale().subscribeVisibleLogicalRangeChange(() => {
-      if (_syncLock) return;
-      const range = priceChart.timeScale().getVisibleRange();
-      if (!range) return;
+    priceChart.timeScale().subscribeVisibleLogicalRangeChange(range => {
+      if (_syncLock || !range) return;
       _syncLock = true;
-      peChart.timeScale().setVisibleRange(range);
+      peChart.timeScale().setVisibleLogicalRange(range);
       _syncLock = false;
     });
-    peChart.timeScale().subscribeVisibleLogicalRangeChange(() => {
-      if (_syncLock) return;
-      const range = peChart.timeScale().getVisibleRange();
-      if (!range) return;
+    peChart.timeScale().subscribeVisibleLogicalRangeChange(range => {
+      if (_syncLock || !range) return;
       _syncLock = true;
-      priceChart.timeScale().setVisibleRange(range);
+      priceChart.timeScale().setVisibleLogicalRange(range);
       _syncLock = false;
     });
   }
 
-  // fitContent 展示全部可用数据，然后把 PE 图强制对齐到同一时间范围
+  // fitContent 展示全部可用数据，然后把 PE 图强制对齐到同一逻辑范围
   priceChart.timeScale().fitContent();
   if (_lwcLTPEChart) {
     requestAnimationFrame(() => {
-      const range = priceChart.timeScale().getVisibleRange();
-      if (range) _lwcLTPEChart.timeScale().setVisibleRange(range);
+      const range = priceChart.timeScale().getVisibleLogicalRange();
+      if (range) _lwcLTPEChart.timeScale().setVisibleLogicalRange(range);
     });
   }
 }
