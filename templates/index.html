@@ -3974,6 +3974,16 @@ function _refreshAStats() {
   document.getElementById('sTime').textContent     = time;
 }
 
+let _hkStatsCache = null;
+function _refreshHkStats() {
+  if (!_hkStatsCache) return;
+  const { total, sumMkt, time } = _hkStatsCache;
+  document.getElementById('sTotal').textContent    = total;
+  document.getElementById('sTotalMkt').textContent = (sumMkt / 10000).toFixed(1);
+  document.getElementById('sAvgMkt').textContent   = (sumMkt / total).toFixed(0);
+  document.getElementById('sTime').textContent     = time;
+}
+
 const _MARKET_META = {
   a:  {
     subtitle:  '市值 &gt; 300亿 &nbsp;|&nbsp; 后复权日线 10年 &nbsp;|&nbsp; 周K线10根对数线性回归趋势评分',
@@ -4032,7 +4042,7 @@ function setMarket(m) {
     document.getElementById('stockTblWrap').style.display  = '';
     document.getElementById('etfTblWrap').style.display    = 'none';
     document.getElementById('usEtfTblWrap').style.display  = 'none';
-    loadHkList();
+    if (_hkStocks.length) { renderHkTable(); _refreshHkStats(); } else loadHkList();
   } else if (m === 'us') {
     setUsSubTab(_activeUsSubTab, false);  // 恢复美股子tab状态
     document.getElementById('statsStrip').style.display = '';
@@ -4060,11 +4070,8 @@ async function loadHkList() {
     const d = await r.json();
     if (!d.success) throw new Error(d.error);
     _hkStocks = d.data;
-    const sumMkt = _hkStocks.reduce((s, x) => s + x['市值亿'], 0);
-    document.getElementById('sTotal').textContent    = d.total;
-    document.getElementById('sTotalMkt').textContent = (sumMkt / 10000).toFixed(1);
-    document.getElementById('sAvgMkt').textContent   = (sumMkt / d.total).toFixed(0);
-    document.getElementById('sTime').textContent     = new Date().toLocaleTimeString('zh-CN');
+    _hkStatsCache = { total: d.total, sumMkt: _hkStocks.reduce((s, x) => s + x['市值亿'], 0), time: new Date().toLocaleTimeString('zh-CN') };
+    _refreshHkStats();
     renderHkTable();
   } catch(e) {
     setTbody(`<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--red)">加载失败：${e.message}</td></tr>`);
