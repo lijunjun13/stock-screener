@@ -947,6 +947,53 @@ def _compute_pe_payload_hk(code: str) -> dict | None:
                 "percentile": round(pe_percentile, 1),
             },
         }
+
+        # ── 收益来源拆解（EPS增长 vs PE扩张）─────────────────────────────────
+        main = _get(f"hist_v4_{code}", ttl=86400)
+        if main and main.get("success"):
+            price_dates = main["dates"]
+            prices_hfq  = main["prices"]
+            pe_dict = dict(zip(pe_dates, pe_vals))
+            last_ov = next((d for d in reversed(price_dates) if d in pe_dict), None)
+
+            def _decomp_hk(start_idx: int) -> dict | None:
+                start_pd   = price_dates[start_idx]
+                first_pe_d = next((d for d in pe_dates if d >= start_pd), None)
+                if not first_pe_d or not last_ov or first_pe_d >= last_ov:
+                    return None
+                if first_pe_d not in pe_dict or last_ov not in pe_dict:
+                    return None
+                p_s = prices_hfq[start_idx]
+                p_e = prices_hfq[price_dates.index(last_ov)]
+                pe_s, pe_e = pe_dict[first_pe_d], pe_dict[last_ov]
+                hfq_ret     = p_e / p_s
+                pe_ret      = pe_e / pe_s
+                eps_div_ret = hfq_ret / pe_ret
+                pl = float(np.log(pe_ret))
+                el = float(np.log(eps_div_ret))
+                ad = abs(pl) + abs(el)
+                return {
+                    "period_start":        first_pe_d,
+                    "period_end":          last_ov,
+                    "pe_start":            round(pe_s, 1),
+                    "pe_end":              round(pe_e, 1),
+                    "hfq_total_return":    round((hfq_ret     - 1) * 100, 1),
+                    "pe_return":           round((pe_ret      - 1) * 100, 1),
+                    "eps_div_return":      round((eps_div_ret - 1) * 100, 1),
+                    "pe_contrib_pct":      round(pl / ad * 100, 1) if ad > 0.001 else 0.0,
+                    "eps_div_contrib_pct": round(el / ad * 100, 1) if ad > 0.001 else 0.0,
+                }
+
+            s10 = next((i for i, d in enumerate(price_dates) if d in pe_dict), None)
+            if s10 is not None:
+                d10 = _decomp_hk(s10)
+                if d10: payload["decomposition"] = d10
+
+            s5 = main.get("split_5y_idx", 0)
+            if s5 and s5 < len(price_dates):
+                d5 = _decomp_hk(s5)
+                if d5: payload["decomposition_5y"] = d5
+
         _set(cache_key, payload)
         return payload
     except Exception as exc:
@@ -2241,7 +2288,17 @@ def get_stock_data(code: str):
         if pe:
             p = {**p, **pe}
         # Analyst consensus EPS forecasts (Eastmoney, best-effort)
+        # For HK stocks, try HK code first; if empty, fall back to A-share sibling
+        # (e.g. 00939→601939 for dual-listed H+A shares)
         consensus = _fetch_consensus_eps(code)
+        if not consensus.get("forecasts") and tc_code.startswith("hk"):
+            hk_num = code.lstrip("0")
+            a_candidates = [f"6{hk_num.zfill(5)}", f"0{hk_num.zfill(5)}"]
+            for a_code in a_candidates:
+                c2 = _fetch_consensus_eps(a_code)
+                if c2.get("forecasts"):
+                    consensus = c2
+                    break
         # Compute forward PE using actual (non-后复权) market price
         actual_price = _fetch_realtime_price(tc_code)
         if actual_price and actual_price > 0:
