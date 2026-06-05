@@ -858,6 +858,17 @@ def _compute_pe_payload_hk(code: str) -> dict | None:
         eps_dates = [str(d)[:10] for d in eps_s.index]
         eps_vals  = [float(v) for v in eps_s.values]
 
+        # income_stmt EPS is in the financial reporting currency (e.g. USD for HSBC,
+        # CNY for Tencent), but prices are in HKD.  Use trailingEps (already in HKD
+        # per yfinance) to derive a scale factor so all historical EPS are in HKD.
+        trailing_eps_hkd = float(t.info.get("trailingEps") or 0)
+        recent_eps_fccy  = next((v for v in reversed(eps_vals) if v and v > 0), 0)
+        if trailing_eps_hkd > 0 and recent_eps_fccy > 0:
+            fx_scale = trailing_eps_hkd / recent_eps_fccy
+        else:
+            fx_scale = 1.0   # fallback: assume EPS already in HKD
+        eps_vals_hkd = [v * fx_scale for v in eps_vals]
+
         hist = t.history(period="max", auto_adjust=False, actions=False)
         if hist.empty:
             return None
@@ -869,9 +880,9 @@ def _compute_pe_payload_hk(code: str) -> dict | None:
             if _math.isnan(price) or price <= 0:
                 continue
             date_str = str(ts)[:10]
-            # most recent annual EPS at or before this price date
+            # most recent annual EPS (HKD) at or before this price date
             eps_v = None
-            for d, v in zip(eps_dates, eps_vals):
+            for d, v in zip(eps_dates, eps_vals_hkd):
                 if d <= date_str and v > 0 and not _math.isnan(v):
                     eps_v = v
             if eps_v is None:
