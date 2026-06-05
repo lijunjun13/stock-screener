@@ -1088,6 +1088,189 @@ def _compute_pe_payload_hk(code: str) -> dict | None:
         return None
 
 
+def _compute_pe_payload_us(code: str) -> dict | None:
+    """Compute historical PE for US stocks via yfinance annual EPS + actual prices.
+    currency=USD for both price and EPS, so no FX conversion needed."""
+    cache_key = f"pe_us_v1_{code}"
+    cached = _get(cache_key, ttl=86400)
+    if cached:
+        return cached
+    try:
+        import yfinance as yf, math as _math
+        t = yf.Ticker(code)
+        ann = t.income_stmt
+        if "Diluted EPS" in ann.index:
+            eps_s = ann.loc["Diluted EPS"].dropna().sort_index()
+        elif "Basic EPS" in ann.index:
+            eps_s = ann.loc["Basic EPS"].dropna().sort_index()
+        else:
+            return None
+        if len(eps_s) < 2:
+            return None
+        eps_dates = [str(d)[:10] for d in eps_s.index]
+        eps_vals  = [float(v) for v in eps_s.values]
+
+        hist = t.history(period="max", auto_adjust=False, actions=False)
+        if hist.empty:
+            return None
+
+        pe_dates: list[str]   = []
+        pe_vals:  list[float] = []
+        for ts, row in hist.iterrows():
+            price = float(row["Close"])
+            if _math.isnan(price) or price <= 0:
+                continue
+            date_str = str(ts)[:10]
+            eps_v = None
+            for d, v in zip(eps_dates, eps_vals):
+                if d <= date_str and v > 0 and not _math.isnan(v):
+                    eps_v = v
+            if eps_v is None:
+                continue
+            pe = round(price / eps_v, 2)
+            if 0 < pe < 500:
+                pe_dates.append(date_str)
+                pe_vals.append(pe)
+
+        if len(pe_vals) < 50:
+            return None
+
+        arr_pe        = np.array(pe_vals, dtype=float)
+        pe_current    = float(pe_vals[-1])
+        pe_percentile = float(np.mean(arr_pe < pe_current) * 100)
+        payload: dict = {
+            "pe_dates":    pe_dates,
+            "pe_vals":     pe_vals,
+            "loss_ranges": [],
+            "pe_stats": {
+                "current":    round(pe_current, 1),
+                "median":     round(float(np.median(arr_pe)),          1),
+                "p10":        round(float(np.percentile(arr_pe, 10)),  1),
+                "p25":        round(float(np.percentile(arr_pe, 25)),  1),
+                "p75":        round(float(np.percentile(arr_pe, 75)),  1),
+                "p90":        round(float(np.percentile(arr_pe, 90)),  1),
+                "percentile": round(pe_percentile, 1),
+            },
+        }
+
+        # 收益来源拆解（EPS增长 vs PE扩张）
+        main = _get(f"hist_v4_{code}", ttl=86400)
+        if main and main.get("success"):
+            price_dates = main["dates"]
+            prices_hfq  = main["prices"]
+            pe_dict = dict(zip(pe_dates, pe_vals))
+            last_ov = next((d for d in reversed(price_dates) if d in pe_dict), None)
+
+            def _decomp_us(start_idx: int) -> dict | None:
+                start_pd   = price_dates[start_idx]
+                first_pe_d = next((d for d in pe_dates if d >= start_pd), None)
+                if not first_pe_d or not last_ov or first_pe_d >= last_ov:
+                    return None
+                if first_pe_d not in pe_dict or last_ov not in pe_dict:
+                    return None
+                p_s = prices_hfq[start_idx]
+                p_e = prices_hfq[price_dates.index(last_ov)]
+                pe_s, pe_e = pe_dict[first_pe_d], pe_dict[last_ov]
+                hfq_ret     = p_e / p_s
+                pe_ret      = pe_e / pe_s
+                eps_div_ret = hfq_ret / pe_ret
+                pl = float(np.log(pe_ret))
+                el = float(np.log(eps_div_ret))
+                ad = abs(pl) + abs(el)
+                return {
+                    "period_start":        first_pe_d,
+                    "period_end":          last_ov,
+                    "pe_start":            round(pe_s, 1),
+                    "pe_end":              round(pe_e, 1),
+                    "hfq_total_return":    round((hfq_ret     - 1) * 100, 1),
+                    "pe_return":           round((pe_ret      - 1) * 100, 1),
+                    "eps_div_return":      round((eps_div_ret - 1) * 100, 1),
+                    "pe_contrib_pct":      round(pl / ad * 100, 1) if ad > 0.001 else 0.0,
+                    "eps_div_contrib_pct": round(el / ad * 100, 1) if ad > 0.001 else 0.0,
+                }
+
+            s10 = next((i for i, d in enumerate(price_dates) if d in pe_dict), None)
+            if s10 is not None:
+                d10 = _decomp_us(s10)
+                if d10: payload["decomposition"] = d10
+
+            s5 = main.get("split_5y_idx", 0)
+            if s5 and s5 < len(price_dates):
+                d5 = _decomp_us(s5)
+                if d5: payload["decomposition_5y"] = d5
+
+        _set(cache_key, payload)
+        return payload
+    except Exception as exc:
+        import sys; print(f"[pe_us] {code}: {exc}", file=sys.stderr)
+        return None
+
+
+def _fetch_us_consensus_yf(code: str) -> dict:
+    """Analyst consensus for US stocks via yfinance. EPS already in USD."""
+    cache_key = f"us_consensus_yf_v1_{code}"
+    cached = _get(cache_key, ttl=3600 * 12)
+    if cached is not None:
+        return cached
+
+    empty = {"forecasts": [], "org_num": None, "buy_num": None,
+             "add_num": None, "target_high": None, "target_low": None}
+    try:
+        import yfinance as yf, math as _m
+        from datetime import datetime as _dt
+
+        t = yf.Ticker(code)
+        ee = t.earnings_estimate
+        forecasts = []
+        cur_year  = _dt.now().year
+        for period, offset in [("0y", 0), ("+1y", 1)]:
+            if period not in ee.index:
+                continue
+            row = ee.loc[period]
+            avg = float(row.get("avg") or 0)
+            if avg <= 0 or _m.isnan(avg):
+                continue
+            forecasts.append({
+                "year":       cur_year + offset,
+                "year_mark":  "E",
+                "eps":        round(avg, 2),
+                "forward_pe": None,
+                "n_analysts": int(row.get("numberOfAnalysts") or 0),
+            })
+
+        pt = t.analyst_price_targets
+        target_high = round(float(pt.get("high") or 0), 2) or None
+        target_low  = round(float(pt.get("low")  or 0), 2) or None
+        target_mean = round(float(pt.get("mean") or 0), 2) or None
+
+        buy_num = add_num = None
+        try:
+            rs = t.recommendations_summary
+            if rs is not None and not rs.empty:
+                latest = rs.iloc[0]
+                buy_num = int(latest.get("strongBuy", 0) + latest.get("buy", 0))
+                add_num = int(latest.get("hold", 0))
+        except Exception:
+            pass
+
+        org_num = max((f.get("n_analysts") or 0) for f in forecasts) if forecasts else None
+        result = {
+            "forecasts":   forecasts,
+            "org_num":     org_num,
+            "buy_num":     buy_num,
+            "add_num":     add_num,
+            "target_high": target_high,
+            "target_low":  target_low,
+            "target_mean": target_mean,
+        }
+        _set(cache_key, result)
+        return result
+    except Exception as exc:
+        import sys; print(f"[us_consensus_yf] {code}: {exc}", file=sys.stderr)
+        _set(cache_key, empty)
+        return empty
+
+
 def _compute_pe_payload(tc_code: str, code: str) -> dict | None:
     """Fetch PE history + decompose price return into EPS-growth vs PE-expansion."""
     cache_key = f"pe_{code}"
@@ -2365,9 +2548,9 @@ def get_stock_data(code: str):
         p = _compute_regression_payload(tc_code, code)
         if not p:
             return jsonify({"success": False, "error": "无历史数据"}), 404
-        # PE history: A-shares via BaoStock, HK via yfinance annual EPS, US: skip
+        # PE history: A-shares via BaoStock, HK/US via yfinance annual EPS
         if tc_code.startswith("us"):
-            pe = None
+            pe = _compute_pe_payload_us(code)
         elif tc_code.startswith("hk"):
             pe = _compute_pe_payload_hk(code)
         else:
@@ -2375,9 +2558,10 @@ def get_stock_data(code: str):
         if pe:
             p = {**p, **pe}
         # Analyst consensus EPS forecasts
-        # HK: yfinance (native HK analyst data, EPS converted to HKD)
-        # A-share / ETF: Eastmoney RPT_WEB_RESPREDICT
-        if tc_code.startswith("hk"):
+        # US: yfinance (USD), HK: yfinance (converted to HKD), A: Eastmoney
+        if tc_code.startswith("us"):
+            consensus = _fetch_us_consensus_yf(code)
+        elif tc_code.startswith("hk"):
             consensus = _fetch_hk_consensus_yf(code)
         else:
             consensus = _fetch_consensus_eps(code)
