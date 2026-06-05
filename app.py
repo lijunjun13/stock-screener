@@ -2402,9 +2402,9 @@ def _resolve_tc(code: str) -> str:
         return code
     if len(code) <= 5 and code.isdigit():
         return "hk" + code.zfill(5)
-    # US stock ticker: 1-6 uppercase letters (AAPL, GOOGL, BRK, etc.)
+    # US stock ticker: letters only, or letters with one hyphen/dot suffix (BRK-B, BRK.B)
     import re as _re
-    if _re.match(r'^[A-Z]{1,6}$', code):
+    if _re.match(r'^[A-Z]{1,6}([.\-][A-Z]{1,2})?$', code):
         return f"us{code}"
     # ETF 列表优先（含正确 sh/sz 前缀）
     for e in _MAJOR_ETFS:
