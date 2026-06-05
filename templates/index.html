@@ -3868,6 +3868,20 @@ document.addEventListener('keydown', e => {
 // ── init ─────────────────────────────────────────────────────────────────────
 loadList();
 
+// 页面加载后在后台预拉港股和美股数据，用户切 tab 时直接渲染无需等待
+setTimeout(async () => {
+  if (!_hkStocks.length) {
+    try {
+      const r = await fetch('/api/hk_stocks');
+      const d = await r.json();
+      if (d.success && d.data?.length) {
+        _hkStocks = d.data;
+        _hkStatsCache = { total: d.total, sumMkt: _hkStocks.reduce((s,x) => s + x['市值亿'], 0), time: new Date().toLocaleTimeString('zh-CN') };
+      }
+    } catch(_) {}
+  }
+}, 3000);  // A股加载完之后再拉，避免竞争带宽
+
 // ── watchlist ─────────────────────────────────────────────────────────────────
 let _wlStocks = [];
 let _wlRefreshTimer = null;
