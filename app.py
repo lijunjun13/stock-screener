@@ -834,10 +834,39 @@ def _fetch_pe_history(
     return dates, pes, loss_dates
 
 
+def _fetch_hk_annual_eps_em(secucode: str) -> list[tuple[str, float]]:
+    """Fetch annual diluted EPS from Eastmoney HK F10 for a HK stock.
+    secucode format: '00700.HK'.  Returns [(date_str, eps_fccy), ...] oldest→newest,
+    in the stock's financial reporting currency (CNY, USD, HKD, etc.)."""
+    try:
+        r = _sess.get(
+            "https://datacenter-web.eastmoney.com/api/data/v1/get",
+            params={
+                "reportName": "RPT_HKF10_FN_INCOME",
+                "columns":    "REPORT_DATE,AMOUNT",
+                # both 001027003 (int'l GAAP) and 004027003 (HK GAAP) = diluted EPS
+                "filter":     f'(SECUCODE="{secucode}")'
+                              '(STD_ITEM_CODE in ("001027003","004027003"))'
+                              '(REPORT_TYPE="年报")',
+                "pageSize":   30,
+                "sortColumns": "REPORT_DATE",
+                "sortTypes":   1,
+            },
+            timeout=8,
+        )
+        rows = (r.json().get("result") or {}).get("data") or []
+        return [(row["REPORT_DATE"][:10], float(row["AMOUNT"]))
+                for row in rows if row.get("AMOUNT") is not None]
+    except Exception:
+        return []
+
+
 def _compute_pe_payload_hk(code: str) -> dict | None:
-    """Compute historical PE for HK stocks using yfinance annual EPS + actual prices.
+    """Compute historical PE for HK stocks.
+    EPS source: Eastmoney HK F10 (up to 20 years) with yfinance trailingEps as
+    FX-to-HKD scale reference.  Falls back to yfinance income_stmt if EM fails.
     Returns the same payload structure as _compute_pe_payload. Cached 1 day."""
-    cache_key = f"pe_hk_{code}"
+    cache_key = f"pe_hk_v2_{code}"
     cached = _get(cache_key, ttl=86400)
     if cached:
         return cached
@@ -846,29 +875,35 @@ def _compute_pe_payload_hk(code: str) -> dict | None:
         numeric  = code.lstrip("0") or "0"
         yf_tick  = numeric.zfill(4) + ".HK"
         t        = yf.Ticker(yf_tick)
-        ann      = t.income_stmt
-        if "Diluted EPS" in ann.index:
-            eps_s = ann.loc["Diluted EPS"].dropna().sort_index()
-        elif "Basic EPS" in ann.index:
-            eps_s = ann.loc["Basic EPS"].dropna().sort_index()
-        else:
-            return None
-        if len(eps_s) < 2:
-            return None
-        eps_dates = [str(d)[:10] for d in eps_s.index]
-        eps_vals  = [float(v) for v in eps_s.values]
 
-        # income_stmt EPS is in the financial reporting currency (e.g. USD for HSBC,
-        # CNY for Tencent), but prices are in HKD.  Use trailingEps (already in HKD
-        # per yfinance) to derive a scale factor so all historical EPS are in HKD.
+        # ── 1. Annual EPS (financial reporting currency) ──────────────────────
+        em_eps = _fetch_hk_annual_eps_em(f"{numeric.zfill(5)}.HK")
+        if len(em_eps) >= 2:
+            eps_dates = [d for d, _ in em_eps]
+            eps_vals  = [v for _, v in em_eps]
+        else:
+            # Fallback: yfinance income_stmt (only 4-5 years)
+            ann = t.income_stmt
+            if "Diluted EPS" in ann.index:
+                eps_s = ann.loc["Diluted EPS"].dropna().sort_index()
+            elif "Basic EPS" in ann.index:
+                eps_s = ann.loc["Basic EPS"].dropna().sort_index()
+            else:
+                return None
+            if len(eps_s) < 2:
+                return None
+            eps_dates = [str(d)[:10] for d in eps_s.index]
+            eps_vals  = [float(v) for v in eps_s.values]
+
+        # ── 2. FX scale: convert financial-currency EPS → HKD ─────────────────
+        # yfinance trailingEps is already in the trading currency (HKD).
         trailing_eps_hkd = float(t.info.get("trailingEps") or 0)
         recent_eps_fccy  = next((v for v in reversed(eps_vals) if v and v > 0), 0)
-        if trailing_eps_hkd > 0 and recent_eps_fccy > 0:
-            fx_scale = trailing_eps_hkd / recent_eps_fccy
-        else:
-            fx_scale = 1.0   # fallback: assume EPS already in HKD
+        fx_scale = (trailing_eps_hkd / recent_eps_fccy
+                    if trailing_eps_hkd > 0 and recent_eps_fccy > 0 else 1.0)
         eps_vals_hkd = [v * fx_scale for v in eps_vals]
 
+        # ── 3. Actual (non-adjusted) daily prices ─────────────────────────────
         hist = t.history(period="max", auto_adjust=False, actions=False)
         if hist.empty:
             return None
