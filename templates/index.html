@@ -374,7 +374,11 @@
   .bar-val { position: relative; z-index: 1; }
   .found-badge { color: var(--green); font-size: .82rem; font-weight: 600; }
 
-  /* ── trend overlay (reuses screen-overlay / screen-box styles) ── */
+  /* ── trend overlay: 全屏 ── */
+  #trendOverlay { padding: 0; align-items: stretch; }
+  #trendOverlay .screen-box {
+    max-width: 100%; border-radius: 0; border: none; height: 100vh; overflow: hidden;
+  }
   .sparkline { display: block; }
   .trend-score { font-variant-numeric: tabular-nums; }
 
