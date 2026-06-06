@@ -3979,7 +3979,7 @@ async function wlToggle(code, name) {
     const r = await fetch('/api/watchlist/add', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({code}),
+      body: JSON.stringify({code, name}),
     });
     const d = await r.json();
     if (!d.success) { alert(d.error || '添加失败'); return; }

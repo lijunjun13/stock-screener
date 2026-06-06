@@ -3125,11 +3125,17 @@ def _wl_save(items: list[dict]):
         pass
 
 
-def _wl_resolve(raw: str) -> dict | None:
-    """Resolve raw user input to {code, tc_code, name}. Supports A股/港股."""
+def _wl_resolve(raw: str, hint_name: str = "") -> dict | None:
+    """Resolve raw user input to {code, tc_code, name}. Supports A股/港股/美股."""
     s = raw.strip()
     if not s:
         return None
+    # 美股：纯字母 ticker（如 IBIT、AAPL）
+    if s.replace("-", "").isalpha() or (not s.isdigit() and not s.lower().startswith(("sz", "sh", "hk")) and len(s) <= 6 and s.upper() == s):
+        sym  = s.upper()
+        tc   = "us" + sym
+        name = _US_CN_NAMES.get(sym) or hint_name or sym
+        return {"code": sym, "tc_code": tc, "name": name}
     if s.lower().startswith(("sz", "sh", "hk")):
         tc = s.lower()
         pure = tc[2:]
@@ -3167,25 +3173,43 @@ def watchlist_get():
         return jsonify({"success": True, "stocks": []})
     tc_list = [it["tc_code"] for it in items]
     quotes: dict[str, dict] = {}
-    try:
-        r = _sess.get(f"https://qt.gtimg.cn/q={','.join(tc_list)}", timeout=6)
-        r.raise_for_status()
-        for line in r.text.strip().split(";\n"):
-            if '="' not in line:
-                continue
-            var = line.split("=")[0].strip()      # "v_sz000001"
-            tc  = var[2:] if var.startswith("v_") else var
-            inner = line.split('="', 1)[1].rstrip('";')
-            fields = inner.split("~")
-            if len(fields) >= 5:
-                price = float(fields[3] or 0)
-                prev  = float(fields[4] or 0)
-                if price > 0 and prev > 0:
-                    chg_pct = round((price - prev) / prev * 100, 2)
-                    chg_amt = round(price - prev, 3)
-                    quotes[tc] = {"price": price, "chg_pct": chg_pct, "chg_amt": chg_amt}
-    except Exception:
-        pass
+    # A股/港股：腾讯实时行情
+    non_us = [tc for tc in tc_list if not tc.startswith("us")]
+    if non_us:
+        try:
+            r = _sess.get(f"https://qt.gtimg.cn/q={','.join(non_us)}", timeout=6)
+            r.raise_for_status()
+            for line in r.text.strip().split(";\n"):
+                if '="' not in line:
+                    continue
+                var = line.split("=")[0].strip()
+                tc  = var[2:] if var.startswith("v_") else var
+                inner = line.split('="', 1)[1].rstrip('";')
+                fields = inner.split("~")
+                if len(fields) >= 5:
+                    price = float(fields[3] or 0)
+                    prev  = float(fields[4] or 0)
+                    if price > 0 and prev > 0:
+                        quotes[tc] = {"price": price,
+                                      "chg_pct": round((price - prev) / prev * 100, 2),
+                                      "chg_amt": round(price - prev, 3)}
+        except Exception:
+            pass
+    # 美股：yfinance 批量行情
+    us_items = [it for it in items if it["tc_code"].startswith("us")]
+    if us_items:
+        try:
+            syms = [it["code"] for it in us_items]
+            yq   = _yf_quote_batch(syms)
+            for it in us_items:
+                q = yq.get(it["code"], {})
+                price = float(q.get("regularMarketPrice") or 0)
+                chg   = float(q.get("regularMarketChangePercent") or 0)
+                if price > 0:
+                    quotes[it["tc_code"]] = {"price": round(price, 2),
+                                             "chg_pct": round(chg, 2)}
+        except Exception:
+            pass
     result = [{**it, **quotes.get(it["tc_code"], {})} for it in items]
     return jsonify({"success": True, "stocks": result})
 
@@ -3194,9 +3218,10 @@ def watchlist_get():
 def watchlist_add():
     body = request.get_json(silent=True) or {}
     raw  = str(body.get("code", "")).strip()
+    hint = str(body.get("name", "")).strip()
     if not raw:
         return jsonify({"error": "请输入代码"}), 400
-    resolved = _wl_resolve(raw)
+    resolved = _wl_resolve(raw, hint_name=hint)
     if not resolved:
         return jsonify({"error": f"未找到股票：{raw}"}), 404
     items = _wl_load()
