@@ -951,6 +951,18 @@ async function loadList() {
 // ── filter / sort ────────────────────────────────────────────────────────────
 function onSearch() {
   const q = document.getElementById('searchBox').value.trim().toLowerCase();
+  // A股ETF
+  if (_activeMarket === 'a' && _activeSubTab === 'etf') {
+    const filtered = _aEtfData.filter(e => !q || e.代码.toLowerCase().includes(q) || e.名称.toLowerCase().includes(q));
+    renderEtfTable(filtered);
+    return;
+  }
+  // 美股ETF
+  if (_activeMarket === 'us' && _activeUsSubTab === 'etf') {
+    const filtered = _usEtfData.filter(e => !q || e.代码.toLowerCase().includes(q) || e.名称.toLowerCase().includes(q));
+    renderUsEtfTable(filtered);
+    return;
+  }
   if (_activeMarket === 'hk') {
     const filtered = _hkStocks.filter(s => !q || s['代码'].toLowerCase().includes(q) || s['名称'].toLowerCase().includes(q));
     document.getElementById('countBadge').textContent = `显示 ${filtered.length} / ${_hkStocks.length} 只`;
@@ -4166,6 +4178,7 @@ function setUsSubTab(sub, doLoad = true) {
 }
 
 let _usEtfLoaded = false;
+let _usEtfData   = [];
 async function loadUsEtfList() {
   if (_usEtfLoaded) return;
   document.getElementById('usEtfBody').innerHTML =
@@ -4175,7 +4188,8 @@ async function loadUsEtfList() {
     const d = await r.json();
     if (!d.success) throw new Error('接口失败');
     _usEtfLoaded = true;
-    renderUsEtfTable(d.data);
+    _usEtfData = d.data;
+    renderUsEtfTable(_usEtfData);
   } catch(e) {
     document.getElementById('usEtfBody').innerHTML =
       `<tr><td colspan="7" style="text-align:center;padding:30px;color:var(--red)">加载失败：${e.message}</td></tr>`;
@@ -4221,6 +4235,7 @@ function renderUsEtfTable(data) {
 }
 
 let _etfLoaded = false;
+let _aEtfData  = [];
 async function loadEtfList() {
   if (_etfLoaded) return;
   document.getElementById('etfBody').innerHTML =
@@ -4230,7 +4245,8 @@ async function loadEtfList() {
     const d = await r.json();
     if (!d.success) throw new Error('接口失败');
     _etfLoaded = true;
-    renderEtfTable(d.data);
+    _aEtfData = d.data;
+    renderEtfTable(_aEtfData);
   } catch(e) {
     document.getElementById('etfBody').innerHTML =
       `<tr><td colspan="7" style="text-align:center;padding:30px;color:var(--red)">加载失败：${e.message}</td></tr>`;
