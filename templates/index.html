@@ -4360,6 +4360,7 @@ const _closes52wCache = new Map();
 let   _closes52wFetching = false;
 const _closes5yCache  = new Map();  // code → {pct10w, pct20w} from 5-year history
 let   _closes5yFetching = false;
+let   _phase2Ready = false;  // true only after applyTrendFilter() Phase 2 completes
 
 async function _fetchCloses5y(stocks) {
   const BATCH = 15;  // 5年数据量大，批次小一些
@@ -4581,8 +4582,8 @@ function renderTrendResults() {
     }
     if (exBank && isBank(s.industry_board))               return false;
     if (exCyc  && isCyclical(s.industry_board))           return false;
-    // 10周分位>70% 且 20周分位>80% → 过热排除（仅在数据已加载时判断）
-    if (exOverheat && s.pct10w != null && s.pct20w != null && s.pct10w > 70 && s.pct20w > 80) return false;
+    // 10周分位>70% 且 20周分位>80% → 过热排除（仅 Phase 2 完成后生效）
+    if (exOverheat && _phase2Ready && s.pct10w != null && s.pct20w != null && s.pct10w > 70 && s.pct20w > 80) return false;
     if (document.getElementById('tFExcludeReverse').checked) {
       if (s.max_high_50d > 0 && s.last_close > 0 && s.atr_50d > 0) {
         const dd = (1 - s.max_high_50d_b * (1 + (s["涨跌幅"] ?? 0) / 100) / s.max_high_50d) * 100;
@@ -4938,7 +4939,8 @@ function renderTrendResults() {
 
 // ── 两阶段筛选：Phase1 立即渲染，Phase2 拉5年K线后再渲染 ─────────────────────
 async function applyTrendFilter() {
-  // Phase 1：立即用现有数据渲染
+  // Phase 1：关闭 Phase 2 标志，立即渲染
+  _phase2Ready = false;
   renderTrendResults();
 
   if (!document.getElementById('tExcludeOverheat').checked) return;
@@ -4960,6 +4962,7 @@ async function applyTrendFilter() {
 
   await _fetchCloses5y(need5y);
   _closes5yFetching = false;
+  _phase2Ready = true;  // 现在激活过热过滤
 
   // Phase 2 完成后最终渲染
   renderTrendResults();
@@ -4995,6 +4998,7 @@ function clearTrendFilters() {
 
 // ── scan ─────────────────────────────────────────────────────────────────────
 function startTrendScan(force = false) {
+  _phase2Ready = false;  // 新扫描重置 Phase 2 状态
   clearTimeout(trendPollTimer);
   try { localStorage.removeItem('trend_results_v2'); } catch(e) {}
   const btn = document.getElementById('btnTrendScan');
