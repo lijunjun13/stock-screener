@@ -4960,7 +4960,12 @@ async function applyTrendFilter() {
     return true;
   });
   const need5y = phase1.filter(s => !s._pct5y_loaded);
-  if (!need5y.length) return;
+  if (!need5y.length) {
+    // 所有股票5年数据已就绪，直接激活过滤并最终渲染
+    _phase2Ready = true;
+    renderTrendResults();
+    return;
+  }
 
   const badge = document.getElementById('tFoundBadge');
   const p1Count = badge ? badge.textContent.match(/\d+/) : null;
