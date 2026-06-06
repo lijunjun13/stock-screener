@@ -952,7 +952,7 @@ async function loadList() {
 function onSearch() {
   const q = document.getElementById('searchBox').value.trim().toLowerCase();
   if (_activeMarket === 'hk') {
-    const filtered = _hkStocks.filter(s => !q || s['代码'].toLowerCase().includes(q) || s['名称'].includes(q));
+    const filtered = _hkStocks.filter(s => !q || s['代码'].toLowerCase().includes(q) || s['名称'].toLowerCase().includes(q));
     document.getElementById('countBadge').textContent = `显示 ${filtered.length} / ${_hkStocks.length} 只`;
     const rows = filtered.map((s, i) => {
       const chg = s['涨跌幅'] || 0, cls = chg >= 0 ? 'pos' : 'neg', sign = chg >= 0 ? '+' : '';
@@ -967,7 +967,7 @@ function onSearch() {
     return;
   }
   if (_activeMarket === 'us') {
-    const filtered = _usStocks.filter(s => !q || s['代码'].toLowerCase().includes(q) || s['名称'].includes(q));
+    const filtered = _usStocks.filter(s => !q || s['代码'].toLowerCase().includes(q) || s['名称'].toLowerCase().includes(q));
     document.getElementById('countBadge').textContent = `显示 ${filtered.length} / ${_usStocks.length} 只`;
     const rows = filtered.map((s, i) => {
       const chg = s['涨跌幅'] || 0, cls = chg >= 0 ? 'pos' : 'neg', sign = chg >= 0 ? '+' : '';
