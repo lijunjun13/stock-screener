@@ -838,11 +838,11 @@
         </label>
         <div style="display:flex;align-items:center;gap:4px;font-size:.78rem;color:var(--muted)">
           <span>10周&gt;</span>
-          <input type="number" id="tPct10wThreshold" value="70" min="0" max="100" step="5"
+          <input type="number" id="tPct10wThreshold" value="95" min="0" max="100" step="5"
                  style="width:46px;padding:3px 5px;background:var(--surface);border:1px solid var(--border);
                         border-radius:4px;color:var(--text);font-size:.78rem;text-align:center">
           <span>%&nbsp;或&nbsp;20周&gt;</span>
-          <input type="number" id="tPct20wThreshold" value="80" min="0" max="100" step="5"
+          <input type="number" id="tPct20wThreshold" value="95" min="0" max="100" step="5"
                  style="width:46px;padding:3px 5px;background:var(--surface);border:1px solid var(--border);
                         border-radius:4px;color:var(--text);font-size:.78rem;text-align:center">
           <span>%</span>
@@ -5005,8 +5005,8 @@ function clearTrendFilters() {
   document.getElementById('tExcludeBank').checked      = false;
   document.getElementById('tExcludeCyclical').checked  = false;
   document.getElementById('tExcludeOverheat').checked  = true;
-  document.getElementById('tPct10wThreshold').value    = '70';
-  document.getElementById('tPct20wThreshold').value    = '80';
+  document.getElementById('tPct10wThreshold').value    = '95';
+  document.getElementById('tPct20wThreshold').value    = '95';
   renderTrendResults();
 }
 
