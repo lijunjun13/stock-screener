@@ -3533,13 +3533,33 @@ def _build_trend_stock_list(market: str = "a") -> dict:
         hk = _fetch_hk_stocks()
         return {"success": True, "data": hk, "total": len(hk)}
 
-    # A-share mode: 与主列表保持一致，复用 stock_list 缓存
+    # A-share mode: 与主列表保持一致，复用 stock_list 缓存；未就绪则主动构建
     main = _get("stock_list", ttl=86400)
-    if main and main.get("success"):
-        a_stocks = main["data"]
-    else:
-        # stock_list 未就绪时降级到全量 ≥100亿
-        a_stocks = [s for s in _fetch_a_stock_list() if s["市值亿"] >= 100.0]
+    if not (main and main.get("success")):
+        # 触发主列表构建并缓存，与 get_stocks() 逻辑完全一致
+        import math as _math2
+        from collections import defaultdict as _dd
+        all_s = _fetch_a_stock_list()
+        sorted_all = sorted(all_s, key=lambda x: x["市值亿"], reverse=True)
+        global_threshold = sorted_all[_math2.floor(len(sorted_all) * 0.05)]["市值亿"] if sorted_all else 0
+        buckets: dict = _dd(list)
+        for s in all_s:
+            buckets[s.get("行业") or "其他"].append(s)
+        in_bucket_top: set = set()
+        for group in buckets.values():
+            group.sort(key=lambda x: x["市值亿"], reverse=True)
+            n = _math2.floor(len(group) * 0.1)
+            for s in group[:n]:
+                in_bucket_top.add(s["代码"])
+        selected = [s for s in all_s
+                    if (s["代码"] in in_bucket_top or s["市值亿"] >= global_threshold)
+                    and s["市值亿"] >= 300.0]
+        selected.sort(key=lambda x: x["市值亿"], reverse=True)
+        for s in selected:
+            s["py"] = _py_initials(s.get("名称", ""))
+        main = {"success": True, "data": selected, "total": len(selected)}
+        _set("stock_list", main)
+    a_stocks = main["data"]
     a_codes = {s["代码"] for s in a_stocks}
     etfs    = [e for e in _MAJOR_ETFS if e["代码"] not in a_codes]
     return {
