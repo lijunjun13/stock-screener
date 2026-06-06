@@ -3609,14 +3609,14 @@ def trend_start():
 
 @app.route("/api/trend/closes52w", methods=["POST"])
 def trend_closes52w():
-    """Fetch 52-week closes + rolling percentiles for a small filtered batch.
+    """Fetch weekly closes + rolling percentiles for a batch of stocks.
 
-    Request:  {"stocks": [{"代码": "600000", "_tc": "sh600000"}, ...]}
-    Response: {"600000": {"closes_52w": [...52 floats...],
-                          "pct10w": 75.0, "pct20w": 60.0}, ...}
+    Request:  {"stocks": [...], "n_weeks": 130}   (n_weeks=260 for 5-year percentiles)
+    Response: {"600000": {"closes_52w": [...], "pct10w": 75.0, "pct20w": 60.0}, ...}
     """
-    body   = request.get_json(silent=True) or {}
-    stocks = body.get("stocks", [])
+    body     = request.get_json(silent=True) or {}
+    stocks   = body.get("stocks", [])
+    n_weeks  = int(body.get("n_weeks", 130))
     if not stocks:
         return jsonify({})
 
@@ -3624,7 +3624,7 @@ def trend_closes52w():
         code = s.get("代码", "")
         tc   = s.get("_tc", ("sh" if code.startswith("6") else "sz") + code)
         try:
-            lc  = _fetch_weekly_closes_long(tc, n=130)
+            lc  = _fetch_weekly_closes_long(tc, n=n_weeks)
             arr = np.array(lc, dtype=float)
             n   = len(arr)
 

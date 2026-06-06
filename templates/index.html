@@ -779,7 +779,7 @@
     <div class="filter-bar">
       <div class="filter-group">
         <label>斜率下限 (%/周)</label>
-        <input type="number" id="tFSlopeMin" placeholder="下限" step="0.1" value="1.5">
+        <input type="number" id="tFSlopeMin" placeholder="下限" step="0.1" value="0.5">
       </div>
       <div class="filter-group">
         <label>去掉斜率 top (%)</label>
@@ -4358,6 +4358,34 @@ let trendSortDir    = 'desc';
 // Keyed by 代码. Populated lazily after the frontend filters down to a small set.
 const _closes52wCache = new Map();
 let   _closes52wFetching = false;
+const _closes5yCache  = new Map();  // code → {pct10w, pct20w} from 5-year history
+let   _closes5yFetching = false;
+
+async function _fetchCloses5y(stocks) {
+  const BATCH = 15;  // 5年数据量大，批次小一些
+  for (let i = 0; i < stocks.length; i += BATCH) {
+    const batch = stocks.slice(i, i + BATCH);
+    try {
+      const resp = await fetch('/api/trend/closes52w', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({stocks: batch.map(s => ({代码: s.代码, _tc: s._tc})), n_weeks: 260}),
+      });
+      const data = await resp.json();
+      for (const [code, vals] of Object.entries(data)) {
+        _closes5yCache.set(code, vals);
+      }
+    } catch(e) { /* skip */ }
+  }
+  // 把5年分位数写回股票对象
+  for (const s of [...trendAllResults]) {
+    const c = _closes5yCache.get(s.代码);
+    if (c) {
+      s.pct10w = c.pct10w;
+      s.pct20w = c.pct20w;
+      s._pct5y_loaded = true;
+    }
+  }
+}
 
 async function _fetchCloses52w(stocks) {
   const missing = stocks.filter(s => !_closes52wCache.has(s.代码));
@@ -4897,17 +4925,29 @@ function renderTrendResults() {
     </tr>`;
   }).join('');
 
-  // ── Lazy-load 52-week data for visible rows ─────────────────────────────
-  // After initial render, fetch closes_52w / pct10w / pct20w for any rows
-  // that don't have it yet, then re-render to fill in correlation penalties
-  // and percentile columns.
-  const needFetch = rows.filter(s => !_closes52wCache.has(s.代码));
-  if (needFetch.length > 0 && !_closes52wFetching) {
+  // ── Phase 1: 拉 52w 数据用于走势图 / 集中度相关性 ───────────────────
+  const needFetch52 = rows.filter(s => !_closes52wCache.has(s.代码));
+  if (needFetch52.length > 0 && !_closes52wFetching) {
     _closes52wFetching = true;
     _fetchCloses52w(rows).finally(() => {
       _closes52wFetching = false;
-      renderTrendResults();   // re-render with full data
+      renderTrendResults();
     });
+  }
+
+  // ── Phase 2: 若开启"排除双高分位"，对 Phase 1 结果拉5年K线算分位数 ──
+  if (document.getElementById('tExcludeOverheat').checked) {
+    const need5y = rows.filter(s => !s._pct5y_loaded);
+    if (need5y.length > 0 && !_closes5yFetching) {
+      _closes5yFetching = true;
+      const badge = document.getElementById('tFoundBadge');
+      const prev = badge ? badge.textContent : '';
+      if (badge) badge.textContent = prev.replace(/只.*/, `只（计算5年分位数…）`);
+      _fetchCloses5y(need5y).finally(() => {
+        _closes5yFetching = false;
+        renderTrendResults();
+      });
+    }
   }
 }
 
@@ -4926,7 +4966,7 @@ function setTrendSort(col) {
 }
 
 function clearTrendFilters() {
-  document.getElementById('tFSlopeMin').value    = '1.5';
+  document.getElementById('tFSlopeMin').value    = '0.5';
   document.getElementById('tFSlopeTopPct').value = '1';
   document.getElementById('tFGainMax').value     = '4';
   document.getElementById('tFR2').value         = '5';
