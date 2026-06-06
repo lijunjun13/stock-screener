@@ -3577,21 +3577,20 @@ def _build_trend_stock_list(market: str = "a") -> dict:
             _set(cache_key, payload)
         return payload
 
-    # A-share mode (default)
-    cache_key = "trend_stock_list_a_v1"
-    cached = _get(cache_key, ttl=86400)
-    if cached:
-        return cached
-    a_stocks = [s for s in _fetch_a_stock_list() if s["市值亿"] >= 100.0]
-    a_codes  = {s["代码"] for s in a_stocks}
-    etfs     = [e for e in _MAJOR_ETFS if e["代码"] not in a_codes]
-    payload = {
+    # A-share mode: 与主列表保持一致，复用 stock_list 缓存
+    main = _get("stock_list", ttl=86400)
+    if main and main.get("success"):
+        a_stocks = main["data"]
+    else:
+        # stock_list 未就绪时降级到全量 ≥100亿
+        a_stocks = [s for s in _fetch_a_stock_list() if s["市值亿"] >= 100.0]
+    a_codes = {s["代码"] for s in a_stocks}
+    etfs    = [e for e in _MAJOR_ETFS if e["代码"] not in a_codes]
+    return {
         "success": True,
         "data":    a_stocks + etfs,
         "total":   len(a_stocks) + len(etfs),
     }
-    _set(cache_key, payload)
-    return payload
 
 
 @app.route("/api/trend/stocks")
