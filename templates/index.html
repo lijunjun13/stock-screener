@@ -957,11 +957,17 @@ function onSearch() {
     const rows = filtered.map((s, i) => {
       const chg = s['涨跌幅'] || 0, cls = chg >= 0 ? 'pos' : 'neg', sign = chg >= 0 ? '+' : '';
       const price = s['最新价'] > 0 ? s['最新价'].toFixed(2) : '—';
-      return `<tr onclick="openModal('${s['代码']}','${s['名称']}')" style="cursor:pointer">
+      const nameEsc = s['名称'].replace(/'/g, "&#39;");
+      const inWl  = _wlStocks.some(w => w.code === s['代码']);
+      const wlCls = inWl ? 'btn-wl in-wl' : 'btn-wl';
+      const wlTip = inWl ? '移出自选' : '加入自选';
+      const wlChr = inWl ? '−' : '+';
+      return `<tr onclick="openModal('${s['代码']}','${nameEsc}')" style="cursor:pointer">
         <td style="color:var(--muted)">${i+1}</td><td class="code">${s['代码']}</td>
-        <td>${s['名称']}</td><td><span class="mktcap">${s['市值亿'].toFixed(0)}</span></td>
+        <td>${s['名称']}<button class="${wlCls}" title="${wlTip}" onclick="event.stopPropagation();wlToggle('${s['代码']}','${nameEsc}')">${wlChr}</button></td>
+        <td><span class="mktcap">${s['市值亿'].toFixed(0)}</span></td>
         <td>${price}</td><td class="${cls}">${price !== '—' ? sign+chg.toFixed(2)+'%' : '—'}</td>
-        <td><button class="btn-analyze" onclick="event.stopPropagation();openModal('${s['代码']}','${s['名称']}')">回归分析</button></td></tr>`;
+        <td><button class="btn-analyze" onclick="event.stopPropagation();openModal('${s['代码']}','${nameEsc}')">回归分析</button></td></tr>`;
     }).join('');
     setTbody(rows || `<tr><td colspan="7" style="text-align:center;padding:30px;color:var(--muted)">无匹配结果</td></tr>`);
     return;
@@ -973,9 +979,14 @@ function onSearch() {
       const chg = s['涨跌幅'] || 0, cls = chg >= 0 ? 'pos' : 'neg', sign = chg >= 0 ? '+' : '';
       const price = s['最新价'] > 0 ? s['最新价'].toFixed(2) : '—';
       const name = (s['名称'] || s['代码']).replace(/'/g, '&#39;');
+      const inWl  = _wlStocks.some(w => w.code === s['代码']);
+      const wlCls = inWl ? 'btn-wl in-wl' : 'btn-wl';
+      const wlTip = inWl ? '移出自选' : '加入自选';
+      const wlChr = inWl ? '−' : '+';
       return `<tr onclick="openModal('${s['代码']}','${name}')" style="cursor:pointer">
         <td style="color:var(--muted)">${i+1}</td><td class="code" style="color:#e3b341">${s['代码']}</td>
-        <td>${name}</td><td><span class="mktcap">${s['市值亿'].toFixed(0)}</span></td>
+        <td>${name}<button class="${wlCls}" title="${wlTip}" onclick="event.stopPropagation();wlToggle('${s['代码']}','${name}')">${wlChr}</button></td>
+        <td><span class="mktcap">${s['市值亿'].toFixed(0)}</span></td>
         <td>${price}</td><td class="${cls}">${price !== '—' ? sign+chg.toFixed(2)+'%' : '—'}</td>
         <td><button class="btn-analyze" onclick="event.stopPropagation();openModal('${s['代码']}','${name}')">回归分析</button></td></tr>`;
     }).join('');
