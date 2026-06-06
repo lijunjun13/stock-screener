@@ -3902,7 +3902,7 @@ async function wlLoad() {
       wlRender();
       if (_activeMarket === 'a') { renderTable(); if (_activeSubTab === 'etf') renderEtfTable(_aEtfData); }
       else if (_activeMarket === 'hk' && _hkStocks.length) renderHkTable();
-      else if (_activeMarket === 'us' && _usStocks.length) renderUsTable();
+      else if (_activeMarket === 'us') { if (_activeUsSubTab === 'etf') renderUsEtfTable(_usEtfData); else if (_usStocks.length) renderUsTable(); }
       if (typeof renderTrendResults === 'function' && trendAllResults.length) renderTrendResults();
       if (typeof _updateModalWlBtn === 'function') _updateModalWlBtn();
     }
@@ -3965,8 +3965,8 @@ async function wlRemove(tcCode) {
   if (d.success) {
     _wlStocks = _wlStocks.filter(s => s.tc_code !== tcCode);
     wlRender();
-    renderTable();
-    if (_activeSubTab === 'etf') renderEtfTable(_aEtfData);
+    if (_activeMarket === 'us') { if (_activeUsSubTab === 'etf') renderUsEtfTable(_usEtfData); else if (_usStocks.length) renderUsTable(); }
+    else { renderTable(); if (_activeSubTab === 'etf') renderEtfTable(_aEtfData); }
     if (typeof renderTrendResults === 'function' && trendAllResults.length) renderTrendResults();
   }
 }
