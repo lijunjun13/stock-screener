@@ -1720,6 +1720,7 @@ function buildConsensusHtml(pe) {
   if (!c) return '';
   const rows = c.forecasts || [];
   if (!rows.length && !c.org_num) return '';
+  const sym = pe.currency === 'USD' ? '$' : pe.currency === 'HKD' ? 'HK$' : '¥';
 
   // Rating summary chips
   const ratingParts = [];
@@ -1738,8 +1739,8 @@ function buildConsensusHtml(pe) {
   // Target price range
   let targetHtml = '';
   if (c.target_high != null || c.target_low != null) {
-    const t_lo = c.target_low  != null ? `¥${c.target_low.toFixed(0)}`  : '—';
-    const t_hi = c.target_high != null ? `¥${c.target_high.toFixed(0)}` : '—';
+    const t_lo = c.target_low  != null ? `${sym}${c.target_low.toFixed(0)}`  : '—';
+    const t_hi = c.target_high != null ? `${sym}${c.target_high.toFixed(0)}` : '—';
     targetHtml = `
       <div style="display:flex;align-items:center;justify-content:space-between;
                   padding:4px 0;border-bottom:1px solid rgba(255,255,255,.06);margin-bottom:4px">
@@ -1774,13 +1775,13 @@ function buildConsensusHtml(pe) {
                  ? null   // computed separately from pessimistic_fwd_pe (single blended value)
                  : null;
     const pessEpsHtml = (pEps != null && r.year_mark !== 'A')
-      ? `<span style="font-size:.72rem;color:var(--muted)">¥${pEps.toFixed(2)}</span>`
+      ? `<span style="font-size:.72rem;color:var(--muted)">${sym}${pEps.toFixed(2)}</span>`
       : `<span style="font-size:.72rem;color:rgba(255,255,255,.15)">—</span>`;
     return `
       <div style="display:grid;grid-template-columns:2fr 3fr 2fr 2fr;align-items:center;
                   padding:3px 0;border-bottom:1px solid rgba(255,255,255,.04);gap:4px">
         <span style="font-size:.7rem;color:${labelColor}">${label}</span>
-        <span style="font-size:.78rem;font-weight:600;color:var(--text)">¥${r.eps.toFixed(2)}</span>
+        <span style="font-size:.78rem;font-weight:600;color:var(--text)">${sym}${r.eps.toFixed(2)}</span>
         ${fwdPeHtml}
         ${pessEpsHtml}
       </div>`;
@@ -2027,7 +2028,7 @@ function buildConsensusHtml(pe) {
           </div>
           <div style="background:rgba(255,255,255,.04);border-radius:5px;padding:5px 7px">
             <div style="font-size:.6rem;color:var(--muted);margin-bottom:2px">每股净资产</div>
-            <div style="font-size:.95rem;font-weight:700;color:var(--text)">¥${pba.bv_per_share.toFixed(1)}</div>
+            <div style="font-size:.95rem;font-weight:700;color:var(--text)">${sym}${pba.bv_per_share.toFixed(1)}</div>
           </div>
         </div>
         <div style="font-size:.6rem;color:rgba(255,255,255,.22);margin-bottom:5px">
@@ -2074,7 +2075,7 @@ function buildConsensusHtml(pe) {
         const vp = s.vs_price ?? 0;
         const vpSign  = vp >= 0 ? '+' : '';
         const vpColor = vp >= 0 ? '#3fb950' : '#f85149';
-        fpHtml = `<span style="font-weight:600;color:var(--text)">¥${s.fair_price.toFixed(2)}</span>`;
+        fpHtml = `<span style="font-weight:600;color:var(--text)">${sym}${s.fair_price.toFixed(2)}</span>`;
         vpHtml = `<span style="font-size:.72rem;font-weight:600;color:${vpColor}">${vpSign}${vp.toFixed(0)}%</span>`;
       }
       return `
@@ -2103,7 +2104,7 @@ function buildConsensusHtml(pe) {
             <span style="font-size:.65rem;color:rgba(255,255,255,.4)">
               隐含归一化EPS &nbsp;<span style="opacity:.6;font-size:.6rem">(现价 ÷ 历史中位PE)</span>
             </span>
-            <span style="font-size:.82rem;font-weight:600;color:var(--text)">¥${normEps.toFixed(2)}</span>
+            <span style="font-size:.82rem;font-weight:600;color:var(--text)">${sym}${normEps.toFixed(2)}</span>
           </div>
           <div style="display:flex;align-items:center;justify-content:space-between">
             <span style="font-size:.6rem;color:rgba(255,255,255,.3)">${premLabel}</span>
@@ -2141,7 +2142,7 @@ function buildConsensusHtml(pe) {
           </div>
         </div>
         <div style="font-size:.6rem;color:rgba(255,255,255,.22);margin-bottom:5px">
-          公允价 = 当前EPS（¥${curEps.toFixed(2)}）× 历史PE分位 &ensp;|&ensp;DCF在周期股上可能因EPS峰/谷而失真
+          公允价 = 当前EPS（${sym}${curEps.toFixed(2)}）× 历史PE分位 &ensp;|&ensp;DCF在周期股上可能因EPS峰/谷而失真
         </div>
         <div style="display:grid;grid-template-columns:3fr 2fr 2.5fr 2.5fr;
                     padding:2px 0 3px;border-bottom:1px solid var(--border);gap:4px;margin-bottom:1px">

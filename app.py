@@ -2661,6 +2661,7 @@ def get_stock_data(code: str):
             pe = _compute_pe_payload(tc_code, code)
         if pe:
             p = {**p, **pe}
+        p["currency"] = "USD" if tc_code.startswith("us") else "HKD" if tc_code.startswith("hk") else "CNY"
         # Analyst consensus EPS forecasts
         # US: yfinance (USD), HK: yfinance (converted to HKD), A: Eastmoney
         if tc_code.startswith("us"):
