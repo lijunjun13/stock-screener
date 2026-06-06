@@ -4688,8 +4688,8 @@ function renderTrendResults() {
           }
         }
       }
-      // Cumulative penalty — same formula as the old industry penalty
-      const cp = Math.pow(0.9, corrCount);
+      // Cumulative penalty — each additional correlated stock ×0.5
+      const cp = Math.pow(0.5, corrCount);
       const mp = momentumPenalty(s);
       const op = overextPenalty(s);
       s._corr_count    = corrCount;
