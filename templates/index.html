@@ -836,6 +836,17 @@
           <input type="checkbox" id="tExcludeOverheat" onchange="renderTrendResults()" checked style="accent-color:var(--accent)">
           排除双高分位
         </label>
+        <div style="display:flex;align-items:center;gap:4px;font-size:.78rem;color:var(--muted)">
+          <span>10周&gt;</span>
+          <input type="number" id="tPct10wThreshold" value="70" min="0" max="100" step="5"
+                 style="width:46px;padding:3px 5px;background:var(--surface);border:1px solid var(--border);
+                        border-radius:4px;color:var(--text);font-size:.78rem;text-align:center">
+          <span>%&nbsp;或&nbsp;20周&gt;</span>
+          <input type="number" id="tPct20wThreshold" value="80" min="0" max="100" step="5"
+                 style="width:46px;padding:3px 5px;background:var(--surface);border:1px solid var(--border);
+                        border-radius:4px;color:var(--text);font-size:.78rem;text-align:center">
+          <span>%</span>
+        </div>
       </div>
       <button class="btn-scan" id="btnTrendScan" onclick="startTrendScan(true)">▶ 开始扫描</button>
       <button class="btn-filter" onclick="applyTrendFilter()">筛选</button>
@@ -4578,8 +4589,12 @@ function renderTrendResults() {
     }
     if (exBank && isBank(s.industry_board))               return false;
     if (exCyc  && isCyclical(s.industry_board))           return false;
-    // 10周分位>70% 或 20周分位>80% → 过热排除（仅 Phase 2 完成后生效）
-    if (exOverheat && _phase2Ready && ((s.pct10w != null && s.pct10w > 70) || (s.pct20w != null && s.pct20w > 80))) return false;
+    // 10周分位 或 20周分位超过阈值 → 过热排除（仅 Phase 2 完成后生效）
+    if (exOverheat && _phase2Ready) {
+      const th10 = parseFloat(document.getElementById('tPct10wThreshold').value) || 70;
+      const th20 = parseFloat(document.getElementById('tPct20wThreshold').value) || 80;
+      if ((s.pct10w != null && s.pct10w > th10) || (s.pct20w != null && s.pct20w > th20)) return false;
+    }
     if (document.getElementById('tFExcludeReverse').checked) {
       if (s.max_high_50d > 0 && s.last_close > 0 && s.atr_50d > 0) {
         const dd = (1 - s.max_high_50d_b * (1 + (s["涨跌幅"] ?? 0) / 100) / s.max_high_50d) * 100;
@@ -4985,6 +5000,8 @@ function clearTrendFilters() {
   document.getElementById('tExcludeBank').checked      = false;
   document.getElementById('tExcludeCyclical').checked  = false;
   document.getElementById('tExcludeOverheat').checked  = true;
+  document.getElementById('tPct10wThreshold').value    = '70';
+  document.getElementById('tPct20wThreshold').value    = '80';
   renderTrendResults();
 }
 
