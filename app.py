@@ -664,83 +664,87 @@ def _fetch_a_stock_list(threshold_yi: float = 0.0) -> list[dict]:
     """Fetch A-share list (沪深主板 + 创业板) from Eastmoney push2 clist.
 
     Returns list of dicts sorted by market cap descending, each with:
-      代码, 名称, 市值亿, 最新价, 涨跌幅, pe, _tc
-    Cached for 24 h.  threshold_yi filters out stocks below that market cap.
+      代码, 名称, 行业, 市值亿, 最新价, 涨跌幅, pe, _tc
+    Cached for 24 h.
     """
     cache_key = "a_stock_list_v1"
     cached = _get(cache_key, ttl=86400)
     if cached is not None:
         return cached
 
+    EM_URL    = "https://push2delay.eastmoney.com/api/qt/clist/get"
+    EM_PARAMS = {
+        "po": "1", "np": "1",
+        "ut": "bd1d9ddb04089700cf9c27f6f7426281",
+        "fltt": "2", "invt": "2", "fid": "f20",
+        "fs": "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23",
+        "fields": "f2,f3,f9,f12,f14,f20,f100",
+    }
+
+    def _parse_items(diff: list) -> list[dict]:
+        out = []
+        for item in diff:
+            code = str(item.get("f12") or "").strip()
+            if not code:
+                continue
+            try:
+                mktcap = float(item.get("f20") or 0) / 1e8
+            except (TypeError, ValueError):
+                continue
+            if mktcap <= 0:
+                continue
+            try:
+                price = round(float(item.get("f2") or 0), 2)
+            except (TypeError, ValueError):
+                price = 0.0
+            try:
+                chg = round(float(item.get("f3") or 0), 2)
+            except (TypeError, ValueError):
+                chg = 0.0
+            try:
+                pe_raw = float(item.get("f9") or 0)
+                pe = round(pe_raw, 1) if -9999 < pe_raw < 9999 else 0.0
+            except (TypeError, ValueError):
+                pe = 0.0
+            market = "sh" if code.startswith("6") else "sz"
+            out.append({
+                "代码":   code,
+                "名称":   str(item.get("f14") or ""),
+                "行业":   str(item.get("f100") or "").replace("Ⅱ", ""),
+                "市值亿": round(mktcap, 1),
+                "最新价": price,
+                "涨跌幅": chg,
+                "pe":     pe,
+                "_tc":    f"{market}{code}",
+            })
+        return out
+
+    def _fetch_page(page_no: int) -> list[dict]:
+        try:
+            r = _em_sess.get(EM_URL, params={**EM_PARAMS, "pn": str(page_no), "pz": "100"},
+                             timeout=15)
+            diff = (r.json().get("data") or {}).get("diff") or []
+            return _parse_items(diff)
+        except Exception:
+            return []
+
     result: list[dict] = []
     try:
-        PAGE = 500
-        page  = 1
-        while True:
-            r = _em_sess.get(
-                "https://push2delay.eastmoney.com/api/qt/clist/get",
-                params={
-                    "pn":   str(page), "pz": str(PAGE),
-                    "po":   "1",       "np": "1",
-                    "ut":   "bd1d9ddb04089700cf9c27f6f7426281",
-                    "fltt": "2",       "invt": "2", "fid": "f20",
-                    # 深交所主板(t:6) + 创业板(t:80) + 沪市主板(t:2) + 科创板(t:23)
-                    "fs":   "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23",
-                    "fields": "f2,f3,f9,f12,f14,f20,f100",
-                },
-                timeout=15,
-            )
-            data = r.json().get("data") or {}
-            diff = data.get("diff") or []
-            if not diff:
-                break
+        from concurrent.futures import ThreadPoolExecutor, as_completed
 
-            for item in diff:
-                code = str(item.get("f12") or "").strip()
-                if not code:
-                    continue
+        # 第1页：获取总数
+        r0 = _em_sess.get(EM_URL, params={**EM_PARAMS, "pn": "1", "pz": "100"}, timeout=15)
+        data0 = r0.json().get("data") or {}
+        total = int(data0.get("total") or 0)
+        result.extend(_parse_items(data0.get("diff") or []))
 
-                try:
-                    mktcap = float(item.get("f20") or 0) / 1e8
-                except (TypeError, ValueError):
-                    continue
-                if mktcap <= 0:
-                    continue
-
-                try:
-                    price = round(float(item.get("f2") or 0), 2)
-                except (TypeError, ValueError):
-                    price = 0.0
-
-                try:
-                    chg = round(float(item.get("f3") or 0), 2)
-                except (TypeError, ValueError):
-                    chg = 0.0
-
-                try:
-                    pe_raw = float(item.get("f9") or 0)
-                    pe = round(pe_raw, 1) if -9999 < pe_raw < 9999 else 0.0
-                except (TypeError, ValueError):
-                    pe = 0.0
-
-                market = "sh" if code.startswith("6") else "sz"
-                result.append({
-                    "代码":   code,
-                    "名称":   str(item.get("f14") or ""),
-                    "行业":   str(item.get("f100") or "").replace("Ⅱ", ""),
-                    "市值亿": round(mktcap, 1),
-                    "最新价": price,
-                    "涨跌幅": chg,
-                    "pe":     pe,
-                    "_tc":    f"{market}{code}",
-                })
-
-            total = data.get("total") or 0
-            # API实际每页返回数量可能少于pz，用累计数判断是否拉完
-            if not total or len(result) >= total or len(diff) == 0:
-                break
-            page += 1
-            time.sleep(0.2)
+        if total > 100:
+            remaining_pages = list(range(2, (total // 100) + 2))
+            # 8 个并发，适当限速避免被封
+            with ThreadPoolExecutor(max_workers=8) as pool:
+                futures = {pool.submit(_fetch_page, p): p for p in remaining_pages}
+                for fut in as_completed(futures):
+                    result.extend(fut.result())
 
     except Exception:
         pass
