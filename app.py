@@ -2712,17 +2712,27 @@ def get_stocks():
         if not all_stocks:
             return jsonify({"success": False, "error": "股票列表为空，请稍后重试"}), 503
 
+        # 全 A 股市值 top 10% 阈值
+        sorted_all = sorted(all_stocks, key=lambda x: x["市值亿"], reverse=True)
+        global_cutoff_idx = _math.floor(len(sorted_all) * 0.1)
+        global_threshold = sorted_all[global_cutoff_idx]["市值亿"] if sorted_all else 0
+
         # 按申万二级行业分桶，每桶取市值 top 10%（向下取整）
         buckets: dict[str, list] = defaultdict(list)
         for s in all_stocks:
             buckets[s.get("行业") or "其他"].append(s)
 
-        stocks = []
+        in_bucket_top: set[str] = set()
         for group in buckets.values():
             group.sort(key=lambda x: x["市值亿"], reverse=True)
             n = _math.floor(len(group) * 0.1)
-            stocks.extend(s for s in group[:n] if s["市值亿"] >= 300.0)
+            for s in group[:n]:
+                in_bucket_top.add(s["代码"])
 
+        # 并集：行业桶 top10% 或 全 A 股市值 top10%，且市值 >=300亿
+        stocks = [s for s in all_stocks
+                  if (s["代码"] in in_bucket_top or s["市值亿"] >= global_threshold)
+                  and s["市值亿"] >= 300.0]
         stocks.sort(key=lambda x: x["市值亿"], reverse=True)
         for s in stocks:
             s["py"] = _py_initials(s.get("名称", ""))
