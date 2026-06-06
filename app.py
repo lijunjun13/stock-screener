@@ -3031,7 +3031,7 @@ def _wl_resolve(raw: str) -> dict | None:
         tc = s.lower()
         pure = tc[2:]
     elif len(s) == 6 and s.isdigit():
-        tc = ("sh" if s.startswith("6") else "sz") + s
+        tc = ("sh" if s.startswith(("6", "5")) else "sz") + s
         pure = s
     elif s.isdigit():
         pure = s.zfill(5)
