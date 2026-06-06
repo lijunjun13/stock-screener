@@ -838,7 +838,7 @@
         </label>
       </div>
       <button class="btn-scan" id="btnTrendScan" onclick="startTrendScan(true)">▶ 开始扫描</button>
-      <button class="btn-filter" onclick="renderTrendResults()">筛选</button>
+      <button class="btn-filter" onclick="applyTrendFilter()">筛选</button>
       <button class="btn-clear-filter" onclick="clearTrendFilters()">清空</button>
       <span class="found-badge" id="tFoundBadge"></span>
     </div>
@@ -4925,7 +4925,7 @@ function renderTrendResults() {
     </tr>`;
   }).join('');
 
-  // ── Phase 1: 拉 52w 数据用于走势图 / 集中度相关性 ───────────────────
+  // 拉 52w 数据用于走势图 / 集中度相关性（不触发重新筛选，只补全显示）
   const needFetch52 = rows.filter(s => !_closes52wCache.has(s.代码));
   if (needFetch52.length > 0 && !_closes52wFetching) {
     _closes52wFetching = true;
@@ -4934,21 +4934,35 @@ function renderTrendResults() {
       renderTrendResults();
     });
   }
+}
 
-  // ── Phase 2: 若开启"排除双高分位"，对 Phase 1 结果拉5年K线算分位数 ──
-  if (document.getElementById('tExcludeOverheat').checked) {
-    const need5y = rows.filter(s => !s._pct5y_loaded);
-    if (need5y.length > 0 && !_closes5yFetching) {
-      _closes5yFetching = true;
-      const badge = document.getElementById('tFoundBadge');
-      const prev = badge ? badge.textContent : '';
-      if (badge) badge.textContent = prev.replace(/只.*/, `只（计算5年分位数…）`);
-      _fetchCloses5y(need5y).finally(() => {
-        _closes5yFetching = false;
-        renderTrendResults();
-      });
-    }
-  }
+// ── 两阶段筛选：Phase1 立即渲染，Phase2 拉5年K线后再渲染 ─────────────────────
+async function applyTrendFilter() {
+  // Phase 1：立即用现有数据渲染
+  renderTrendResults();
+
+  if (!document.getElementById('tExcludeOverheat').checked) return;
+
+  // Phase 2：对 Phase 1 结果中未加载5年数据的股票，拉取5年K线算分位数
+  const phase1 = trendAllResults.filter(s => {
+    // 重跑一遍 Phase 1 过滤器（不含 overheating），取出当前可见的股票
+    if (_activeMarket === 'a'  &&  (s.is_hk || s.is_us)) return false;
+    if (_activeMarket === 'hk' && (!s.is_hk || s.is_us)) return false;
+    if (_activeMarket === 'us' && !s.is_us) return false;
+    return true;
+  });
+  const need5y = phase1.filter(s => !s._pct5y_loaded);
+  if (!need5y.length) return;
+
+  const badge = document.getElementById('tFoundBadge');
+  if (badge) badge.textContent = `${phase1.length} 只（计算5年分位数…）`;
+  _closes5yFetching = true;
+
+  await _fetchCloses5y(need5y);
+  _closes5yFetching = false;
+
+  // Phase 2 完成后最终渲染
+  renderTrendResults();
 }
 
 // ── sort handler ─────────────────────────────────────────────────────────────
