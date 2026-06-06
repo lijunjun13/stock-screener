@@ -2196,7 +2196,7 @@ def _fetch_recent_highs(tc_code: str) -> tuple[float, float, float, float, float
     """
     # ── slow-changing kline data: cached 2 h ─────────────────────────────────
     rows = []
-    max_c50, last_hfq, atr = 0.0, 0.0, 0.0
+    max_c50, last_c, atr = 0.0, 0.0, 0.0
     try:
         today = datetime.now()
         start = (today - timedelta(days=80)).strftime("%Y-%m-%d")
@@ -2214,12 +2214,10 @@ def _fetch_recent_highs(tc_code: str) -> tuple[float, float, float, float, float
         if len(closes) >= 10:
             today_str = today.strftime("%Y-%m-%d")
             if dates and dates[-1] >= today_str and len(closes) >= 2:
-                last_hfq   = closes[-2]   # 昨收，用于 cur_price = last_hfq*(1+chg%) 估算
                 hist_close = closes[:-1]
             else:
-                last_hfq   = closes[-1]
                 hist_close = closes
-            last_c = closes[-1]           # 最新收盘，用于回撤基准
+            last_c  = closes[-1]
             max_c50 = max(hist_close[-50:]) if len(hist_close) >= 50 else max(hist_close)
             rets = [abs(closes[i] / closes[i-1] - 1) * 100
                     for i in range(1, len(closes))]
@@ -2227,15 +2225,11 @@ def _fetch_recent_highs(tc_code: str) -> tuple[float, float, float, float, float
     except Exception:
         pass
 
-    if last_hfq == 0.0:
+    if last_c == 0.0:
         return (0.0, 0.0, 0.0, 0.0, None)
 
-    # ── real-time intraday price: apply today's chg% to hfq last close ───────
-    # 与日K逻辑一致：若 qt.gtimg 成交量 == kline 最后一条成交量，说明今天尚未开盘，
-    # qt.gtimg 返回的是昨天数据，不能再乘一次昨天涨跌幅，直接用 last_hfq。
-    cur_price = last_hfq
-    chg_pct   = None
-    prev_vol  = float(rows[-1][5]) if rows and len(rows[-1]) > 5 else -1
+    chg_pct  = None
+    prev_vol = float(rows[-1][5]) if rows and len(rows[-1]) > 5 else -1
     try:
         r = _sess.get(f"https://qt.gtimg.cn/q={tc_code}", timeout=5)
         for ln in r.text.strip().split(";\n"):
@@ -2245,14 +2239,7 @@ def _fetch_recent_highs(tc_code: str) -> tuple[float, float, float, float, float
             if len(flds) > 32 and flds[32]:
                 qt_vol = float(flds[6] or 0)
                 chg    = float(flds[32])
-                if qt_vol != prev_vol and qt_vol > 0:
-                    # 今天有新成交 → 用实时涨跌幅估算后复权当前价
-                    chg_pct   = round(chg, 2)
-                    cur_price = round(last_hfq * (1 + chg / 100), 4)
-                else:
-                    # 尚未开盘或成交量未变 → cur_price = 昨收，涨跌幅 = 0
-                    chg_pct   = 0.0
-                    cur_price = last_hfq
+                chg_pct = round(chg, 2) if (qt_vol != prev_vol and qt_vol > 0) else 0.0
             break
     except Exception:
         pass
