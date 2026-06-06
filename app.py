@@ -2214,11 +2214,12 @@ def _fetch_recent_highs(tc_code: str) -> tuple[float, float, float, float, float
         if len(closes) >= 10:
             today_str = today.strftime("%Y-%m-%d")
             if dates and dates[-1] >= today_str and len(closes) >= 2:
-                last_hfq   = closes[-2]
+                last_hfq   = closes[-2]   # 昨收，用于 cur_price = last_hfq*(1+chg%) 估算
                 hist_close = closes[:-1]
             else:
                 last_hfq   = closes[-1]
                 hist_close = closes
+            last_c = closes[-1]           # 最新收盘，用于回撤基准
             max_c50 = max(hist_close[-50:]) if len(hist_close) >= 50 else max(hist_close)
             rets = [abs(closes[i] / closes[i-1] - 1) * 100
                     for i in range(1, len(closes))]
@@ -2256,8 +2257,7 @@ def _fetch_recent_highs(tc_code: str) -> tuple[float, float, float, float, float
     except Exception:
         pass
 
-    # 回撤统一用昨收（last_hfq），不用盘中估算价，避免当天大涨/大跌扭曲回撤数字
-    return (round(max_c50, 4), round(last_hfq, 4), round(last_hfq, 4), atr, chg_pct)
+    return (round(max_c50, 4), round(last_c, 4), round(last_c, 4), atr, chg_pct)
 
 
 def _weekly_end_date() -> str:
