@@ -2195,43 +2195,36 @@ def _fetch_recent_highs(tc_code: str) -> tuple[float, float, float, float, float
     Returns (0.0, 0.0, 0.0, 0.0) on failure.
     """
     # ── slow-changing kline data: cached 2 h ─────────────────────────────────
-    cache_key = f"rec_highs_v8_{tc_code}"
-    cached = _get(cache_key, ttl=43200)
-    rows = []   # needed for prev_vol below; stays [] on cache-hit path
-    if cached is not None:
-        max_c50, last_hfq, atr = cached
-    else:
-        max_c50, last_hfq, atr = 0.0, 0.0, 0.0
-        try:
-            today = datetime.now()
-            start = (today - timedelta(days=80)).strftime("%Y-%m-%d")  # ~55 trading days
-            end   = today.strftime("%Y-%m-%d")
-            url   = (
-                "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get"
-                f"?param={tc_code},day,{start},{end},75,hfq"
-            )
-            r = _sess.get(url, timeout=8)
-            r.raise_for_status()
-            sd     = r.json()["data"][tc_code]
-            rows   = (sd.get("hfqday") or sd.get("qfqday") or sd.get("day") or [])
-            dates  = [row[0] for row in rows if len(row) > 2 and row[2]]
-            closes = [float(row[2]) for row in rows if len(row) > 2 and row[2]]
-            if len(closes) >= 10:
-                today_str = today.strftime("%Y-%m-%d")
-                if dates and dates[-1] >= today_str and len(closes) >= 2:
-                    # kline 包含今日未完成 bar：昨收作为基准，max 只用已完成历史收盘
-                    last_hfq   = closes[-2]
-                    hist_close = closes[:-1]
-                else:
-                    last_hfq   = closes[-1]
-                    hist_close = closes
-                max_c50 = max(hist_close[-50:]) if len(hist_close) >= 50 else max(hist_close)
-                rets = [abs(closes[i] / closes[i-1] - 1) * 100
-                        for i in range(1, len(closes))]
-                atr  = round(sum(rets[-50:]) / min(len(rets), 50), 2)
-                _set(cache_key, [round(max_c50, 4), round(last_hfq, 4), atr])
-        except Exception:
-            pass
+    rows = []
+    max_c50, last_hfq, atr = 0.0, 0.0, 0.0
+    try:
+        today = datetime.now()
+        start = (today - timedelta(days=80)).strftime("%Y-%m-%d")
+        end   = today.strftime("%Y-%m-%d")
+        url   = (
+            "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get"
+            f"?param={tc_code},day,{start},{end},75,hfq"
+        )
+        r = _sess.get(url, timeout=8)
+        r.raise_for_status()
+        sd     = r.json()["data"][tc_code]
+        rows   = (sd.get("hfqday") or sd.get("qfqday") or sd.get("day") or [])
+        dates  = [row[0] for row in rows if len(row) > 2 and row[2]]
+        closes = [float(row[2]) for row in rows if len(row) > 2 and row[2]]
+        if len(closes) >= 10:
+            today_str = today.strftime("%Y-%m-%d")
+            if dates and dates[-1] >= today_str and len(closes) >= 2:
+                last_hfq   = closes[-2]
+                hist_close = closes[:-1]
+            else:
+                last_hfq   = closes[-1]
+                hist_close = closes
+            max_c50 = max(hist_close[-50:]) if len(hist_close) >= 50 else max(hist_close)
+            rets = [abs(closes[i] / closes[i-1] - 1) * 100
+                    for i in range(1, len(closes))]
+            atr  = round(sum(rets[-50:]) / min(len(rets), 50), 2)
+    except Exception:
+        pass
 
     if last_hfq == 0.0:
         return (0.0, 0.0, 0.0, 0.0, None)
@@ -2345,10 +2338,6 @@ def _fetch_weekly_closes_long(tc_code: str, n: int = 130) -> list[float]:
     Uses a separate cache key from _fetch_weekly_closes so that the short
     22-week cache is not invalidated.  Cached 12 h.
     """
-    cache_key = f"weekly_long_v1_{tc_code}"
-    cached = _get(cache_key, ttl=43200)
-    if cached is not None:
-        return cached
     result: list[float] = []
     try:
         end   = _weekly_end_date()
@@ -2369,8 +2358,6 @@ def _fetch_weekly_closes_long(tc_code: str, n: int = 130) -> list[float]:
         pass
     if not result and not tc_code.startswith("hk"):
         result = _fetch_weekly_closes_em(tc_code, n)
-    if result:
-        _set(cache_key, result)
     return result
 
 
@@ -2419,10 +2406,6 @@ def _fetch_weekly_closes(tc_code: str, n: int = 12) -> list[float]:
     Fallback: Eastmoney push2his klt=102 (when Tencent is rate-limited).
     Cached 12 h.
     """
-    cache_key = f"weekly_v2_{tc_code}"
-    cached = _get(cache_key, ttl=43200)
-    if cached is not None:
-        return cached
     result: list[float] = []
     try:
         end   = _weekly_end_date()
@@ -2445,8 +2428,6 @@ def _fetch_weekly_closes(tc_code: str, n: int = 12) -> list[float]:
     # Eastmoney fallback for A-shares/ETFs when Tencent fails (e.g. rate-limit from non-CN IPs)
     if not result and not tc_code.startswith("hk"):
         result = _fetch_weekly_closes_em(tc_code, n)
-    if result:
-        _set(cache_key, result)
     return result
 
 
@@ -2459,10 +2440,6 @@ _trend_lock = threading.Lock()
 
 def _fetch_us_weekly_closes_scan(ticker: str, n: int = 22) -> list[float]:
     """Return last n weekly 后复权 closes for US trend scan. Cached 2 h."""
-    ck = f"us_wkly_scan_{ticker}"
-    cached = _get(ck, ttl=7200)
-    if cached:
-        return cached[-n:]
     try:
         import yfinance as yf
         raw = yf.Ticker(ticker).history(period="2y", interval="1wk",
@@ -2471,7 +2448,6 @@ def _fetch_us_weekly_closes_scan(ticker: str, n: int = 22) -> list[float]:
             return []
         K = _us_hfq_k_cached(ticker)
         closes = [round(float(c) * K, 4) for c in raw["Adj Close"]]
-        _set(ck, closes)
         return closes[-n:]
     except Exception:
         return []
@@ -2479,10 +2455,6 @@ def _fetch_us_weekly_closes_scan(ticker: str, n: int = 22) -> list[float]:
 
 def _fetch_us_recent_highs_scan(ticker: str):
     """Return (max_h50, max_h50, last_close, atr_50d, chg_live) for a US ticker."""
-    ck = f"us_rh_scan_{ticker}"
-    cached = _get(ck, ttl=7200)
-    if cached:
-        return tuple(cached)
     try:
         import yfinance as yf
         t   = yf.Ticker(ticker)
@@ -2502,9 +2474,7 @@ def _fetch_us_recent_highs_scan(ticker: str):
         except Exception:
             pass
         last_c2 = closes[-2] if len(closes) >= 2 else closes[-1]  # 昨收
-        res = [round(max_h50, 4), round(max_h50, 4), round(last_c2, 4), atr, chg_live]
-        _set(ck, res)
-        return tuple(res)
+        return (round(max_h50, 4), round(max_h50, 4), round(last_c2, 4), atr, chg_live)
     except Exception:
         return 0.0, 0.0, 0.0, 0.0, None
 
@@ -3551,31 +3521,17 @@ def _build_trend_stock_list(market: str = "a") -> dict:
     market='us' → S&P500 + supplements ≥300亿USD   (cached 1 h)
     """
     if market == "us":
-        cache_key = "trend_stock_list_us_v1"
-        cached = _get(cache_key, ttl=3600)
-        if cached:
-            return cached
         us = _fetch_us_stocks()
         for s in us:
             s["is_us"]  = True
             s["is_hk"]  = False
             s["is_etf"] = False
             s.setdefault("pe", 0.0)
-        payload = {"success": True, "data": us, "total": len(us)}
-        if us:
-            _set(cache_key, payload)
-        return payload
+        return {"success": True, "data": us, "total": len(us)}
 
     if market == "hk":
-        cache_key = "trend_stock_list_hk_v1"
-        cached = _get(cache_key, ttl=86400)
-        if cached:
-            return cached
         hk = _fetch_hk_stocks()
-        payload = {"success": True, "data": hk, "total": len(hk)}
-        if hk:
-            _set(cache_key, payload)
-        return payload
+        return {"success": True, "data": hk, "total": len(hk)}
 
     # A-share mode: 与主列表保持一致，复用 stock_list 缓存
     main = _get("stock_list", ttl=86400)
