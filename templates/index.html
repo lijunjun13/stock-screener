@@ -4204,10 +4204,13 @@ function renderUsEtfTable(data) {
         <td colspan="7" style="padding:6px 14px;font-size:.72rem;color:var(--muted);font-weight:600;letter-spacing:.05em">${e.类别}</td>
       </tr>`;
     }
+    const inWl  = _wlStocks.some(w => w.code === e.代码);
+    const wlCls = inWl ? 'btn-wl in-wl' : 'btn-wl';
+    const wlChr = inWl ? '−' : '+';
     return catRow + `<tr onclick="openModal('${e.代码}','${name}')" style="cursor:pointer">
       <td style="color:var(--muted);font-size:.75rem">${idx}</td>
       <td class="code" style="color:#e3b341">${e.代码}</td>
-      <td>${name}</td>
+      <td>${name}<button class="${wlCls}" title="${inWl ? '移出自选' : '加入自选'}" onclick="event.stopPropagation();wlToggle('${e.代码}','${name}')">${wlChr}</button></td>
       <td style="color:var(--muted);font-size:.78rem">${e.类别}</td>
       <td>${price}</td>
       <td class="${chgCls}">${e.价格 > 0 ? sign + chg.toFixed(2) + '%' : '—'}</td>
@@ -4254,10 +4257,14 @@ function renderEtfTable(data) {
         <td colspan="7" style="padding:6px 14px;font-size:.72rem;color:var(--muted);font-weight:600;letter-spacing:.05em">${e.类别}</td>
       </tr>`;
     }
-    return catRow + `<tr onclick="openModal('${e.代码}','${e.名称}')" style="cursor:pointer">
+    const nameEsc = e.名称.replace(/'/g, "&#39;");
+    const inWl  = _wlStocks.some(w => w.code === e.代码);
+    const wlCls = inWl ? 'btn-wl in-wl' : 'btn-wl';
+    const wlChr = inWl ? '−' : '+';
+    return catRow + `<tr onclick="openModal('${e.代码}','${nameEsc}')" style="cursor:pointer">
       <td style="color:var(--muted);font-size:.75rem">${i+1}</td>
       <td class="code">${e.代码}</td>
-      <td>${e.名称}</td>
+      <td>${e.名称}<button class="${wlCls}" title="${inWl ? '移出自选' : '加入自选'}" onclick="event.stopPropagation();wlToggle('${e.代码}','${nameEsc}')">${wlChr}</button></td>
       <td style="color:var(--muted);font-size:.78rem">${e.类别}</td>
       <td>${e.价格 > 0 ? e.价格.toFixed(3) : '—'}</td>
       <td class="${chgCls}">${e.价格 > 0 ? sign + chg.toFixed(2) + '%' : '—'}</td>
