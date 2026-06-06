@@ -2714,7 +2714,7 @@ def get_stocks():
 
         # 全 A 股市值 top 10% 阈值
         sorted_all = sorted(all_stocks, key=lambda x: x["市值亿"], reverse=True)
-        global_cutoff_idx = _math.floor(len(sorted_all) * 0.1)
+        global_cutoff_idx = _math.floor(len(sorted_all) * 0.05)
         global_threshold = sorted_all[global_cutoff_idx]["市值亿"] if sorted_all else 0
 
         # 按申万二级行业分桶，每桶取市值 top 10%（向下取整）
