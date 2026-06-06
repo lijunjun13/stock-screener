@@ -917,6 +917,7 @@
 <script>
 let allStocks = [];
 let view = [];
+let _aListLoading = false;
 
 // ── year-window toggle state ──────────────────────────────────────────────────
 let _analysisGen      = 0;          // incremented on each new stock open; stale tasks abort
@@ -929,7 +930,8 @@ let _currentPhaseText = '';  // last successful phase analysis text, for re-draw
 
 // ── load stock list ──────────────────────────────────────────────────────────
 async function loadList() {
-  setTbody(`<tr class="loading-row"><td colspan="7"><div class="spin"></div><div style="margin-top:12px;color:var(--muted)">正在获取 A 股列表，请稍候（约 10–20 秒）…</div></td></tr>`);
+  _aListLoading = true;
+  setTbody(`<tr class="loading-row"><td colspan="8"><div class="spin"></div><div style="margin-top:12px;color:var(--muted)">正在获取 A 股列表，请稍候（约 10–20 秒）…</div></td></tr>`);
   try {
     const r = await fetch('/api/stocks');
     const d = await r.json();
@@ -943,9 +945,11 @@ async function loadList() {
     _aStatsCache = { total, sumMkt, time: new Date().toLocaleTimeString('zh-CN') };
     _refreshAStats();
 
+    _aListLoading = false;
     renderTable();
   } catch(e) {
-    setTbody(`<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--red)">加载失败：${e.message}</td></tr>`);
+    _aListLoading = false;
+    setTbody(`<tr><td colspan="8" style="text-align:center;padding:40px;color:var(--red)">加载失败：${e.message}</td></tr>`);
   }
 }
 
@@ -1040,7 +1044,14 @@ function onSort() {
 // ── render table ─────────────────────────────────────────────────────────────
 function renderTable() {
   document.getElementById('countBadge').textContent = `显示 ${view.length} / ${allStocks.length} 只`;
-  if (!view.length) { setTbody(`<tr><td colspan="8" style="text-align:center;padding:30px;color:var(--muted)">无匹配结果</td></tr>`); return; }
+  if (!view.length) {
+    if (_aListLoading) {
+      setTbody(`<tr class="loading-row"><td colspan="8"><div class="spin"></div><div style="margin-top:12px;color:var(--muted)">正在获取 A 股列表，请稍候…</div></td></tr>`);
+    } else {
+      setTbody(`<tr><td colspan="8" style="text-align:center;padding:30px;color:var(--muted)">无匹配结果</td></tr>`);
+    }
+    return;
+  }
 
   const rows = view.map((s, i) => {
     const chg   = s['涨跌幅'];
