@@ -4957,7 +4957,8 @@ async function applyTrendFilter() {
   if (!need5y.length) return;
 
   const badge = document.getElementById('tFoundBadge');
-  if (badge) badge.textContent = `${phase1.length} 只（计算5年分位数…）`;
+  const p1Count = badge ? badge.textContent.match(/\d+/) : null;
+  if (badge) badge.textContent = `${p1Count ? p1Count[0] : phase1.length} 只（计算5年分位数…）`;
   _closes5yFetching = true;
 
   await _fetchCloses5y(need5y);
