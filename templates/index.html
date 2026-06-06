@@ -4409,14 +4409,10 @@ async function _fetchCloses52w(stocks) {
     } catch(e) { /* network error — skip batch, will retry next render */ }
   }
 
-  // Merge all cached data back into trendAllResults
+  // Merge closes_52w back (sparklines / correlation only; no percentiles from 52w)
   for (const s of trendAllResults) {
     const c = _closes52wCache.get(s.代码);
-    if (c) {
-      s.closes_52w = c.closes_52w;
-      s.pct10w     = c.pct10w;
-      s.pct20w     = c.pct20w;
-    }
+    if (c) s.closes_52w = c.closes_52w;
   }
 }
 
@@ -4687,15 +4683,10 @@ function renderTrendResults() {
     return 1.0;
   };
 
-  // Re-apply cached 52w data — trendAllResults is replaced wholesale on each
-  // poll, so pct10w / closes_52w set by a previous fetch would be wiped out.
+  // Re-apply cached 52w closes for sparklines/correlation
   rows.forEach(s => {
     const c = _closes52wCache.get(s.代码);
-    if (c && s.pct10w == null) {
-      s.closes_52w = c.closes_52w;
-      s.pct10w     = c.pct10w;
-      s.pct20w     = c.pct20w;
-    }
+    if (c) s.closes_52w = c.closes_52w;
   });
 
   // Cache log-return vectors (computed once, reused across iterations)

@@ -3628,27 +3628,29 @@ def trend_closes52w():
             arr = np.array(lc, dtype=float)
             n   = len(arr)
 
-            closes_52w = None
-            if n >= 52 and arr[-52] > 0:
-                closes_52w = [round(p / arr[-52], 4) for p in arr[-52:]]
-
-            pct10w = None
-            if n >= 11:
-                rets10 = [(arr[i+10]/arr[i] - 1)*100
-                          for i in range(n-10) if arr[i] > 0]
-                cur10  = (arr[-1]/arr[-11] - 1)*100 if arr[-11] > 0 else None
-                if rets10 and cur10 is not None:
-                    pct10w = round(float(np.mean(np.array(rets10) <= cur10))*100, 1)
-
-            pct20w = None
-            if n >= 21:
-                rets20 = [(arr[i+20]/arr[i] - 1)*100
-                          for i in range(n-20) if arr[i] > 0]
-                cur20  = (arr[-1]/arr[-21] - 1)*100 if arr[-21] > 0 else None
-                if rets20 and cur20 is not None:
-                    pct20w = round(float(np.mean(np.array(rets20) <= cur20))*100, 1)
-
-            return code, {"closes_52w": closes_52w, "pct10w": pct10w, "pct20w": pct20w}
+            if n_weeks <= 130:
+                # 52周模式：只返回走势图用的归一化序列，不算分位数
+                closes_52w = None
+                if n >= 52 and arr[-52] > 0:
+                    closes_52w = [round(p / arr[-52], 4) for p in arr[-52:]]
+                return code, {"closes_52w": closes_52w}
+            else:
+                # 5年模式：算10周/20周分位数
+                pct10w = None
+                if n >= 11:
+                    rets10 = [(arr[i+10]/arr[i] - 1)*100
+                              for i in range(n-10) if arr[i] > 0]
+                    cur10  = (arr[-1]/arr[-11] - 1)*100 if arr[-11] > 0 else None
+                    if rets10 and cur10 is not None:
+                        pct10w = round(float(np.mean(np.array(rets10) <= cur10))*100, 1)
+                pct20w = None
+                if n >= 21:
+                    rets20 = [(arr[i+20]/arr[i] - 1)*100
+                              for i in range(n-20) if arr[i] > 0]
+                    cur20  = (arr[-1]/arr[-21] - 1)*100 if arr[-21] > 0 else None
+                    if rets20 and cur20 is not None:
+                        pct20w = round(float(np.mean(np.array(rets20) <= cur20))*100, 1)
+                return code, {"pct10w": pct10w, "pct20w": pct20w}
         except Exception:
             return code, {}
 
