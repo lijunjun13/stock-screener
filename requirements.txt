@@ -6,3 +6,4 @@ gunicorn>=21.2.0
 redis>=5.0.0
 openai>=1.0.0
 yfinance
+pypinyin>=0.50.0

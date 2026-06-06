@@ -2062,6 +2062,15 @@ _US_CN_NAMES: dict[str, str] = {
 }
 
 
+def _py_initials(name: str) -> str:
+    """Return lowercase pinyin initials string for a Chinese name, e.g. '英伟达' → 'ywd'."""
+    try:
+        from pypinyin import lazy_pinyin, Style
+        return "".join(lazy_pinyin(name, style=Style.FIRST_LETTER)).lower()
+    except Exception:
+        return ""
+
+
 def _fetch_us_stocks() -> list[dict]:
     """Fetch US large-cap stocks (≥ 300亿USD = $30B) via Yahoo Finance."""
     cache_key = "us_stocks_v3"
@@ -2628,15 +2637,17 @@ def etf_quotes():
     result = []
     for e in _MAJOR_ETFS:
         q = quotes.get(e["_tc"], {})
+        name = e["名称"]
         result.append({
             "代码":   e["代码"],
-            "名称":   e["名称"],
+            "名称":   name,
             "类别":   e["industry_board"],
             "_tc":    e["_tc"],
             "价格":   q.get("price", 0),
             "涨跌幅": q.get("chg_pct", 0),
             "成交量": q.get("volume", 0),
             "成交额": q.get("amount", 0),
+            "py":     _py_initials(name),
         })
     return jsonify({"success": True, "data": result})
 
@@ -2692,6 +2703,8 @@ def get_stocks():
         stocks = [s for s in all_stocks if s["市值亿"] >= 300.0]
         if not stocks:
             return jsonify({"success": False, "error": "股票列表为空，请稍后重试"}), 503
+        for s in stocks:
+            s["py"] = _py_initials(s.get("名称", ""))
         payload = {"success": True, "data": stocks, "total": len(stocks)}
         _set("stock_list", payload)
         return jsonify(payload)
@@ -2731,6 +2744,7 @@ def get_hk_stocks():
         q = quotes.get(s["_tc"], {})
         s["最新价"] = q.get("最新价", 0)
         s["涨跌幅"] = q.get("涨跌幅", s.get("涨跌幅", 0))
+        s["py"] = _py_initials(s.get("名称", ""))
 
     return jsonify({"success": True, "data": stocks, "total": len(stocks)})
 
@@ -2745,6 +2759,7 @@ def get_us_stocks():
         cn = _US_CN_NAMES.get(s.get("代码", ""))
         if cn:
             s["名称"] = cn
+        s["py"] = _py_initials(s.get("名称", ""))
     return jsonify({"success": True, "data": stocks, "total": len(stocks)})
 
 

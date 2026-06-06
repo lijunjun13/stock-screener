@@ -953,18 +953,18 @@ function onSearch() {
   const q = document.getElementById('searchBox').value.trim().toLowerCase();
   // A股ETF
   if (_activeMarket === 'a' && _activeSubTab === 'etf') {
-    const filtered = _aEtfData.filter(e => !q || e.代码.toLowerCase().includes(q) || e.名称.toLowerCase().includes(q));
+    const filtered = _aEtfData.filter(e => !q || e.代码.toLowerCase().includes(q) || e.名称.toLowerCase().includes(q) || (e.py && e.py.includes(q)));
     renderEtfTable(filtered);
     return;
   }
   // 美股ETF
   if (_activeMarket === 'us' && _activeUsSubTab === 'etf') {
-    const filtered = _usEtfData.filter(e => !q || e.代码.toLowerCase().includes(q) || e.名称.toLowerCase().includes(q));
+    const filtered = _usEtfData.filter(e => !q || e.代码.toLowerCase().includes(q) || e.名称.toLowerCase().includes(q) || (e.py && e.py.includes(q)));
     renderUsEtfTable(filtered);
     return;
   }
   if (_activeMarket === 'hk') {
-    const filtered = _hkStocks.filter(s => !q || s['代码'].toLowerCase().includes(q) || s['名称'].toLowerCase().includes(q));
+    const filtered = _hkStocks.filter(s => !q || s['代码'].toLowerCase().includes(q) || s['名称'].toLowerCase().includes(q) || (s.py && s.py.includes(q)));
     document.getElementById('countBadge').textContent = `显示 ${filtered.length} / ${_hkStocks.length} 只`;
     const rows = filtered.map((s, i) => {
       const chg = s['涨跌幅'] || 0, cls = chg >= 0 ? 'pos' : 'neg', sign = chg >= 0 ? '+' : '';
@@ -985,7 +985,7 @@ function onSearch() {
     return;
   }
   if (_activeMarket === 'us') {
-    const filtered = _usStocks.filter(s => !q || s['代码'].toLowerCase().includes(q) || s['名称'].toLowerCase().includes(q));
+    const filtered = _usStocks.filter(s => !q || s['代码'].toLowerCase().includes(q) || s['名称'].toLowerCase().includes(q) || (s.py && s.py.includes(q)));
     document.getElementById('countBadge').textContent = `显示 ${filtered.length} / ${_usStocks.length} 只`;
     const rows = filtered.map((s, i) => {
       const chg = s['涨跌幅'] || 0, cls = chg >= 0 ? 'pos' : 'neg', sign = chg >= 0 ? '+' : '';
@@ -1005,7 +1005,7 @@ function onSearch() {
     setTbody(rows || `<tr><td colspan="7" style="text-align:center;padding:30px;color:var(--muted)">无匹配结果</td></tr>`);
     return;
   }
-  view = allStocks.filter(s => !q || s['代码'].includes(q) || s['名称'].includes(q));
+  view = allStocks.filter(s => !q || s['代码'].includes(q) || s['名称'].includes(q) || (s.py && s.py.includes(q)));
   renderTable();
 }
 
