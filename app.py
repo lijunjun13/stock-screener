@@ -2512,11 +2512,11 @@ def _run_trend_scan(stock_list: list[dict]) -> None:
             else:
                 max_h50, max_h50b, last_cls, atr_50d, chg_live = _fetch_recent_highs(tc)
 
-            ret10w = None
-            if len(closes_all) >= 10:
-                c0, c1 = closes_all[-10], closes_all[-1]
+            ret7w = None
+            if len(closes_all) >= 7:
+                c0, c1 = closes_all[-7], closes_all[-1]
                 if c0 > 0:
-                    ret10w = round((c1 / c0 - 1) * 100, 1)
+                    ret7w = round((c1 / c0 - 1) * 100, 1)
 
             ret20w = None
             if len(closes_all) >= 20:
@@ -2544,7 +2544,7 @@ def _run_trend_scan(stock_list: list[dict]) -> None:
                 "max_high_50d_b": max_h50b,
                 "last_close":    last_cls,
                 "atr_50d":       atr_50d,
-                "ret10w":        ret10w,
+                "ret7w":         ret7w,
                 "ret20w":        ret20w,
                 "涨跌幅":        chg_today,
             }
@@ -3596,7 +3596,7 @@ def trend_closes52w():
     """Fetch weekly closes + rolling percentiles for a batch of stocks.
 
     Request:  {"stocks": [...], "n_weeks": 130}   (n_weeks=260 for 5-year percentiles)
-    Response: {"600000": {"closes_52w": [...], "pct10w": 75.0, "pct20w": 60.0}, ...}
+    Response: {"600000": {"closes_52w": [...], "pct7w": 75.0, "pct20w": 60.0}, ...}
     """
     body     = request.get_json(silent=True) or {}
     stocks   = body.get("stocks", [])
@@ -3629,14 +3629,14 @@ def trend_closes52w():
                     closes_52w = [round(p / arr[-52], 4) for p in arr[-52:]]
                 return code, {"closes_52w": closes_52w}
             else:
-                # 5年模式：算10周/20周分位数
-                pct10w = None
-                if n >= 11:
-                    rets10 = [(arr[i+10]/arr[i] - 1)*100
-                              for i in range(n-10) if arr[i] > 0]
-                    cur10  = (arr[-1]/arr[-11] - 1)*100 if arr[-11] > 0 else None
-                    if rets10 and cur10 is not None:
-                        pct10w = round(float(np.mean(np.array(rets10) <= cur10))*100, 1)
+                # 5年模式：算7周/20周分位数
+                pct7w = None
+                if n >= 8:
+                    rets7 = [(arr[i+7]/arr[i] - 1)*100
+                             for i in range(n-7) if arr[i] > 0]
+                    cur7  = (arr[-1]/arr[-8] - 1)*100 if arr[-8] > 0 else None
+                    if rets7 and cur7 is not None:
+                        pct7w = round(float(np.mean(np.array(rets7) <= cur7))*100, 1)
                 pct20w = None
                 if n >= 21:
                     rets20 = [(arr[i+20]/arr[i] - 1)*100
@@ -3644,7 +3644,7 @@ def trend_closes52w():
                     cur20  = (arr[-1]/arr[-21] - 1)*100 if arr[-21] > 0 else None
                     if rets20 and cur20 is not None:
                         pct20w = round(float(np.mean(np.array(rets20) <= cur20))*100, 1)
-                return code, {"pct10w": pct10w, "pct20w": pct20w}
+                return code, {"pct7w": pct7w, "pct20w": pct20w}
         except Exception:
             return code, {}
 

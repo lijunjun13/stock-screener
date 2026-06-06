@@ -832,13 +832,13 @@
           排除周期股
         </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap;font-size:.82rem;color:var(--text)"
-               title="10周涨幅分位>70% 或 20周涨幅分位>80% 时排除（过热）">
+               title="7周涨幅分位>70% 或 20周涨幅分位>80% 时排除（过热）">
           <input type="checkbox" id="tExcludeOverheat" onchange="renderTrendResults()" checked style="accent-color:var(--accent)">
           排除双高分位
         </label>
         <div style="display:flex;align-items:center;gap:4px;font-size:.78rem;color:var(--muted)">
-          <span>10周&gt;</span>
-          <input type="number" id="tPct10wThreshold" value="95" min="0" max="100" step="5"
+          <span>7周&gt;</span>
+          <input type="number" id="tPct7wThreshold" value="95" min="0" max="100" step="5"
                  style="width:46px;padding:3px 5px;background:var(--surface);border:1px solid var(--border);
                         border-radius:4px;color:var(--text);font-size:.78rem;text-align:center">
           <span>%&nbsp;或&nbsp;20周&gt;</span>
@@ -876,14 +876,14 @@
             <th onclick="setTrendSort('r2')" id="tth_r2" title="趋势回归残差标准差（%）；越小说明走势越纯粹，与斜率高低无关">σ_res%<span class="sort-arrow"></span></th>
             <th onclick="setTrendSort('score')" id="tth_score" title="综合得分 = 斜率^1.1 / σ_res（信噪比）">得分<span class="sort-arrow"></span></th>
             <th onclick="setTrendSort('pe')" id="tth_pe" title="动态市盈率（腾讯实时）">PE<span class="sort-arrow"></span></th>
-            <th onclick="setTrendSort('gain')" id="tth_gain" title="10周累计涨幅（首根收盘→末根收盘）">10周涨幅<span class="sort-arrow"></span></th>
+            <th onclick="setTrendSort('gain')" id="tth_gain" title="7周累计涨幅（首根收盘→末根收盘）">7周涨幅<span class="sort-arrow"></span></th>
             <th onclick="setTrendSort('ret20')" id="tth_ret20" title="20周累计涨幅">20周涨幅<span class="sort-arrow"></span></th>
             <th onclick="setTrendSort('drawdown')" id="tth_drawdown" title="当前收盘价距近50日收盘价最高点的回撤幅度">回撤%<span class="sort-arrow"></span></th>
             <th onclick="setTrendSort('atr')" id="tth_atr" title="近50日每日涨跌幅绝对值均值（%），波动率指标">ATR%<span class="sort-arrow"></span></th>
-            <th onclick="setTrendSort('pct10w')" id="tth_pct10w" title="当前10周涨幅在过去两年所有10周滚动涨幅中的分位数">10周涨幅分位<span class="sort-arrow"></span></th>
+            <th onclick="setTrendSort('pct7w')" id="tth_pct7w" title="当前7周涨幅在过去两年所有7周滚动涨幅中的分位数">7周涨幅分位<span class="sort-arrow"></span></th>
             <th onclick="setTrendSort('pct20w')" id="tth_pct20w" title="当前20周涨幅在过去两年所有20周滚动涨幅中的分位数">20周涨幅分位<span class="sort-arrow"></span></th>
             <th onclick="setTrendSort('chgToday')" id="tth_chgToday" title="今日涨跌幅（实时）">今日涨跌<span class="sort-arrow"></span></th>
-            <th>近10周走势</th>
+            <th>近7周走势</th>
             <th>惩罚</th>
             <th>行业</th>
             <th></th>
@@ -4371,7 +4371,7 @@ let trendSortDir    = 'desc';
 // Keyed by 代码. Populated lazily after the frontend filters down to a small set.
 const _closes52wCache = new Map();
 let   _closes52wFetching = false;
-const _closes5yCache  = new Map();  // code → {pct10w, pct20w} from 5-year history
+const _closes5yCache  = new Map();  // code → {pct7w, pct20w} from 5-year history
 let   _closes5yFetching = false;
 let   _phase2Ready = false;  // true only after applyTrendFilter() Phase 2 completes
 let   _lastRenderedRows = [];  // Phase 2 用：上次 renderTrendResults 渲染的行
@@ -4395,7 +4395,7 @@ async function _fetchCloses5y(stocks) {
   for (const s of [...trendAllResults]) {
     const c = _closes5yCache.get(s.代码);
     if (c) {
-      s.pct10w = c.pct10w;
+      s.pct7w = c.pct7w;
       s.pct20w = c.pct20w;
       s._pct5y_loaded = true;
     }
@@ -4592,11 +4592,11 @@ function renderTrendResults() {
     }
     if (exBank && isBank(s.industry_board))               return false;
     if (exCyc  && isCyclical(s.industry_board))           return false;
-    // 10周分位 或 20周分位超过阈值 → 过热排除（仅 Phase 2 完成后生效）
+    // 7周分位 或 20周分位超过阈值 → 过热排除（仅 Phase 2 完成后生效）
     if (exOverheat && _phase2Ready) {
-      const th10 = parseFloat(document.getElementById('tPct10wThreshold').value) || 70;
+      const th10 = parseFloat(document.getElementById('tPct7wThreshold').value) || 70;
       const th20 = parseFloat(document.getElementById('tPct20wThreshold').value) || 80;
-      if ((s.pct10w != null && s.pct10w > th10) || (s.pct20w != null && s.pct20w > th20)) return false;
+      if ((s.pct7w != null && s.pct7w > th10) || (s.pct20w != null && s.pct20w > th20)) return false;
     }
     if (document.getElementById('tFExcludeReverse').checked) {
       if (s.max_high_50d > 0 && s.last_close > 0 && s.atr_50d > 0) {
@@ -4633,7 +4633,7 @@ function renderTrendResults() {
   } else if (sk === 'mkt') {
     rows.sort((a,b) => sd==='asc' ? a.市值亿 - b.市值亿 : b.市值亿 - a.市值亿);
   } else if (sk === 'gain') {
-    const gainOf = s => s.ret10w ?? -Infinity;
+    const gainOf = s => s.ret7w ?? -Infinity;
     rows.sort((a,b) => sd==='asc' ? gainOf(a) - gainOf(b) : gainOf(b) - gainOf(a));
   } else if (sk === 'ret20') {
     rows.sort((a,b) => {
@@ -4648,9 +4648,9 @@ function renderTrendResults() {
       const av = a.atr_50d ?? -Infinity, bv = b.atr_50d ?? -Infinity;
       return sd==='asc' ? av - bv : bv - av;
     });
-  } else if (sk === 'pct10w') {
+  } else if (sk === 'pct7w') {
     rows.sort((a,b) => {
-      const av = a.pct10w ?? -Infinity, bv = b.pct10w ?? -Infinity;
+      const av = a.pct7w ?? -Infinity, bv = b.pct7w ?? -Infinity;
       return sd==='asc' ? av - bv : bv - av;
     });
   } else if (sk === 'pct20w') {
@@ -4773,14 +4773,14 @@ function renderTrendResults() {
   window._trendLrMap = _lrMap;
 
   // Update sort arrows
-  ['tth_slope','tth_r2','tth_score','tth_pe','tth_gain','tth_ret20','tth_drawdown','tth_atr','tth_pct10w','tth_pct20w','tth_chgToday'].forEach(id => {
+  ['tth_slope','tth_r2','tth_score','tth_pe','tth_gain','tth_ret20','tth_drawdown','tth_atr','tth_pct7w','tth_pct20w','tth_chgToday'].forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
     el.classList.remove('active-sort');
     const sa = el.querySelector('.sort-arrow');
     if (sa) sa.textContent = '';
   });
-  const thMap = { slope:'tth_slope', r2:'tth_r2', score:'tth_score', pe:'tth_pe', gain:'tth_gain', ret20:'tth_ret20', drawdown:'tth_drawdown', atr:'tth_atr', pct10w:'tth_pct10w', pct20w:'tth_pct20w', chgToday:'tth_chgToday' };
+  const thMap = { slope:'tth_slope', r2:'tth_r2', score:'tth_score', pe:'tth_pe', gain:'tth_gain', ret20:'tth_ret20', drawdown:'tth_drawdown', atr:'tth_atr', pct7w:'tth_pct7w', pct20w:'tth_pct20w', chgToday:'tth_chgToday' };
   if (thMap[sk]) {
     const el = document.getElementById(thMap[sk]);
     if (el) {
@@ -4878,8 +4878,8 @@ function renderTrendResults() {
       <td style="color:${scColor};font-weight:600" class="trend-score">${sc.toFixed(2)}</td>
       <td style="color:${peColor}">${peStr}</td>
       ${(() => {
-        if (s.ret10w == null) return '<td style="color:var(--muted)">—</td>';
-        const g = s.ret10w;
+        if (s.ret7w == null) return '<td style="color:var(--muted)">—</td>';
+        const g = s.ret7w;
         const gc = g >= 0 ? '#3fb950' : '#f85149';
         return `<td style="color:${gc};font-weight:600">${g >= 0 ? '+' : ''}${g.toFixed(1)}%</td>`;
       })()}
@@ -4901,8 +4901,8 @@ function renderTrendResults() {
           : `<span style="color:var(--muted)">—</span>`
       }</td>
       ${(() => {
-        if (s.pct10w == null) return `<td style="color:var(--muted);font-size:.72rem">${_closes52wFetching || !_closes52wCache.has(s.代码) ? '…' : '—'}</td>`;
-        const p = s.pct10w;
+        if (s.pct7w == null) return `<td style="color:var(--muted);font-size:.72rem">${_closes52wFetching || !_closes52wCache.has(s.代码) ? '…' : '—'}</td>`;
+        const p = s.pct7w;
         const c = p >= 80 ? '#f85149' : p >= 60 ? '#e3b341' : p >= 40 ? '#3fb950' : '#c9d1d9';
         return `<td style="color:${c};font-weight:600">${p.toFixed(0)}%</td>`;
       })()}
@@ -4980,7 +4980,7 @@ async function applyTrendFilter() {
 
 // ── sort handler ─────────────────────────────────────────────────────────────
 function setTrendSort(col) {
-  const keyMap = { slope:'slope', r2:'r2', score:'score', mkt:'mkt', pe:'pe', gain:'gain', ret20:'ret20', drawdown:'drawdown', atr:'atr', pct10w:'pct10w', pct20w:'pct20w', chgToday:'chgToday' };
+  const keyMap = { slope:'slope', r2:'r2', score:'score', mkt:'mkt', pe:'pe', gain:'gain', ret20:'ret20', drawdown:'drawdown', atr:'atr', pct7w:'pct7w', pct20w:'pct20w', chgToday:'chgToday' };
   const k = keyMap[col];
   if (!k) return;
   if (trendSortKey === k) {
@@ -5003,7 +5003,7 @@ function clearTrendFilters() {
   document.getElementById('tExcludeBank').checked      = false;
   document.getElementById('tExcludeCyclical').checked  = false;
   document.getElementById('tExcludeOverheat').checked  = true;
-  document.getElementById('tPct10wThreshold').value    = '95';
+  document.getElementById('tPct7wThreshold').value    = '95';
   document.getElementById('tPct20wThreshold').value    = '95';
   renderTrendResults();
 }
@@ -5096,12 +5096,12 @@ function _renderMobileTrendCards(rows) {
     const pe   = s.pe > 0 ? s.pe.toFixed(1) : '—';
     const peC  = s.pe > 0 && s.pe < 30 ? '#3fb950' : s.pe >= 30 && s.pe < 60 ? '#e3b341' : '#c9d1d9';
     const atr  = s.atr_50d ? `${s.atr_50d.toFixed(2)}%` : '—';
-    const p10  = s.pct10w  != null ? `${s.pct10w.toFixed(0)}%`  : '…';
-    const p10C = s.pct10w  != null ? (s.pct10w >= 80 ? '#f85149' : s.pct10w >= 60 ? '#e3b341' : s.pct10w >= 40 ? '#3fb950' : '#c9d1d9') : 'var(--muted)';
+    const p10  = s.pct7w  != null ? `${s.pct7w.toFixed(0)}%`  : '…';
+    const p10C = s.pct7w  != null ? (s.pct7w >= 80 ? '#f85149' : s.pct7w >= 60 ? '#e3b341' : s.pct7w >= 40 ? '#3fb950' : '#c9d1d9') : 'var(--muted)';
     const p20  = s.pct20w  != null ? `${s.pct20w.toFixed(0)}%`  : '…';
     const p20C = s.pct20w  != null ? (s.pct20w >= 80 ? '#f85149' : s.pct20w >= 60 ? '#e3b341' : s.pct20w >= 40 ? '#3fb950' : '#c9d1d9') : 'var(--muted)';
-    const ret10 = s.ret10w != null ? `${s.ret10w >= 0 ? '+' : ''}${s.ret10w.toFixed(1)}%` : '—';
-    const ret10C = s.ret10w != null ? (s.ret10w >= 0 ? '#f85149' : '#3fb950') : 'var(--muted)';
+    const ret10 = s.ret7w != null ? `${s.ret7w >= 0 ? '+' : ''}${s.ret7w.toFixed(1)}%` : '—';
+    const ret10C = s.ret7w != null ? (s.ret7w >= 0 ? '#f85149' : '#3fb950') : 'var(--muted)';
     const ret20 = s.ret20w != null ? `${s.ret20w >= 0 ? '+' : ''}${s.ret20w.toFixed(1)}%` : '—';
     const ret20C = s.ret20w != null ? (s.ret20w >= 0 ? '#f85149' : '#3fb950') : 'var(--muted)';
 
@@ -5146,13 +5146,13 @@ function _renderMobileTrendCards(rows) {
       </div>
       <div class="tm-row2">
         <div class="tm-m"><div class="tm-mv" style="color:${peC}">${pe}</div><div class="tm-ml">PE</div></div>
-        <div class="tm-m"><div class="tm-mv" style="color:${ret10C}">${ret10}</div><div class="tm-ml">10周涨幅</div></div>
+        <div class="tm-m"><div class="tm-mv" style="color:${ret10C}">${ret10}</div><div class="tm-ml">7周涨幅</div></div>
         <div class="tm-m"><div class="tm-mv" style="color:${ret20C}">${ret20}</div><div class="tm-ml">20周涨幅</div></div>
         <div class="tm-m" style="align-items:flex-end;padding-right:4px">${sparkSvg}</div>
       </div>
       <div class="tm-row2" style="border-top:none;padding-top:3px">
         <div class="tm-m"><div class="tm-mv" style="color:${atr==='—'?'var(--muted)':'#c9d1d9'}">${atr}</div><div class="tm-ml">ATR</div></div>
-        <div class="tm-m"><div class="tm-mv" style="color:${p10C}">${p10}</div><div class="tm-ml">10周分位</div></div>
+        <div class="tm-m"><div class="tm-mv" style="color:${p10C}">${p10}</div><div class="tm-ml">7周分位</div></div>
         <div class="tm-m"><div class="tm-mv" style="color:${p20C}">${p20}</div><div class="tm-ml">20周分位</div></div>
         <div class="tm-m"><div class="tm-mv" style="color:var(--muted);font-size:10px">${s.市值亿?.toFixed(0)||'—'}亿</div><div class="tm-ml">市值</div></div>
       </div>
