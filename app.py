@@ -684,8 +684,8 @@ def _fetch_a_stock_list(threshold_yi: float = 0.0) -> list[dict]:
                     "po":   "1",       "np": "1",
                     "ut":   "bd1d9ddb04089700cf9c27f6f7426281",
                     "fltt": "2",       "invt": "2", "fid": "f20",
-                    # 沪深主板 + 创业板（不含科创板/北交所）
-                    "fs":   "m:0+t:6,m:1+t:2,m:1+t:23",
+                    # 深交所主板(t:6) + 创业板(t:80) + 沪市主板(t:2) + 科创板(t:23)
+                    "fs":   "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23",
                     "fields": "f2,f3,f9,f12,f14,f20,f100",
                 },
                 timeout=15,
