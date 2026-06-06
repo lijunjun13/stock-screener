@@ -2473,8 +2473,7 @@ def _fetch_us_recent_highs_scan(ticker: str):
             chg_live = round(float(fi.get("regularMarketChangePercent") or 0), 2)
         except Exception:
             pass
-        last_c2 = closes[-2] if len(closes) >= 2 else closes[-1]  # 昨收
-        # max_high_50d_b = last_c2（昨收），前端用它算回撤：(1 - last_c2*(1+chg%) / max_h50)
+        last_c2 = closes[-1]  # 最新收盘，前端用它算回撤：(1 - last_c2*(1+chg%) / max_h50)
         return (round(max_h50, 4), round(last_c2, 4), round(last_c2, 4), atr, chg_live)
     except Exception:
         return 0.0, 0.0, 0.0, 0.0, None
