@@ -789,14 +789,6 @@
         <label title="斜率（%/周）不超过 N×ATR（ATR = 近50日日涨跌幅绝对值均值），过滤过热品种">斜率 ≤ N×ATR</label>
         <input type="number" id="tFGainMax" placeholder="如 4" step="0.5" min="0" value="4">
       </div>
-      <div class="filter-group">
-        <label>市值下限 (亿)</label>
-        <input type="number" id="tFMktMin" placeholder="下限" step="50" min="0" value="500">
-      </div>
-      <div class="filter-group">
-        <label>市值上限 (亿)</label>
-        <input type="number" id="tFMktMax" placeholder="不限" step="500" min="0">
-      </div>
       <div class="filter-group" style="justify-content:flex-end;gap:8px">
         <label>&nbsp;</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap;font-size:.82rem;color:var(--text)"
@@ -4519,8 +4511,6 @@ function renderTrendResults() {
   const fSlopeTopPct = parseFloat(document.getElementById('tFSlopeTopPct').value);
   const fR2          = parseFloat(document.getElementById('tFR2').value);
   const fGainMax     = parseFloat(document.getElementById('tFGainMax').value);
-  const fMktMin      = parseFloat(document.getElementById('tFMktMin').value);
-  const fMktMax      = parseFloat(document.getElementById('tFMktMax').value);
   const exLoss       = document.getElementById('tFExcludeLoss').checked;
   const exBank       = document.getElementById('tExcludeBank').checked;
   const exCyc        = document.getElementById('tExcludeCyclical').checked;
@@ -4549,8 +4539,6 @@ function renderTrendResults() {
     }
     if (!isNaN(fR2) && s.sigma_res > fR2) return false;
     if (!s.is_etf) {
-      if (!isNaN(fMktMin) && s.市值亿 < fMktMin) return false;
-      if (!isNaN(fMktMax) && s.市值亿 > fMktMax) return false;
       if (exLoss && !s.is_etf && (s.pe ?? 0) <= 0) return false;
     }
     if (exBank && isBank(s.industry_board))               return false;
@@ -4930,8 +4918,6 @@ function clearTrendFilters() {
   document.getElementById('tFSlopeTopPct').value = '1';
   document.getElementById('tFGainMax').value     = '4';
   document.getElementById('tFR2').value         = '5';
-  document.getElementById('tFMktMin').value   = '500';
-  document.getElementById('tFMktMax').value   = '';
   document.getElementById('tFExcludeLoss').checked    = true;
   document.getElementById('tFExcludeReverse').checked  = true;
   document.getElementById('tFPenalty20w').checked      = true;
