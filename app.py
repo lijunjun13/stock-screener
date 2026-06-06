@@ -2069,10 +2069,11 @@ _US_CN_NAMES: dict[str, str] = {
 
 
 def _py_initials(name: str) -> str:
-    """Return lowercase pinyin initials string for a Chinese name, e.g. '英伟达' → 'ywd'."""
+    """Return lowercase pinyin initials for a name, e.g. '万 科 A' → 'wka'."""
     try:
         from pypinyin import lazy_pinyin, Style
-        return "".join(lazy_pinyin(name, style=Style.FIRST_LETTER)).lower()
+        raw = "".join(lazy_pinyin(name, style=Style.FIRST_LETTER)).lower()
+        return "".join(c for c in raw if c.isalpha())
     except Exception:
         return ""
 
