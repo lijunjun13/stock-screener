@@ -2102,7 +2102,7 @@ def _fetch_us_stocks() -> list[dict]:
         pe     = round(float(pe_raw), 1) if pe_raw and float(pe_raw) > 0 else 0.0
         stocks.append({
             "代码":          sym,
-            "名称":          name,
+            "名称":          _US_CN_NAMES.get(sym) or name,
             "市值亿":        round(mktcap, 1),
             "最新价":        price,
             "涨跌幅":        chg,
@@ -2744,9 +2744,6 @@ def get_us_stocks():
     if not stocks:
         return jsonify({"success": False, "error": "获取美股数据失败"}), 503
     for s in stocks:
-        cn = _US_CN_NAMES.get(s.get("代码", ""))
-        if cn:
-            s["名称"] = cn
         s["py"] = _py_initials(s.get("名称", ""))
     return jsonify({"success": True, "data": stocks, "total": len(stocks)})
 
