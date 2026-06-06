@@ -2479,7 +2479,7 @@ def _run_trend_scan(stock_list: list[dict]) -> None:
         is_hk  = bool(stock.get("is_hk"))
         is_us  = bool(stock.get("is_us"))
         try:
-            n_weeks = 7 if is_etf else 10
+            n_weeks = 7
             if is_us:
                 closes_all = _fetch_us_weekly_closes_scan(code, n=22)
             else:

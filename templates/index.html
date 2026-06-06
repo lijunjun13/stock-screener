@@ -461,7 +461,7 @@
 
 <header class="site-header">
   <h1>全市场趋势交易量化系统</h1>
-  <p id="headerSubtitle">市值 &gt; 300亿 &nbsp;|&nbsp; 后复权日线 10年 &nbsp;|&nbsp; 周K线10根对数线性回归趋势评分</p>
+  <p id="headerSubtitle">市值 &gt; 300亿 &nbsp;|&nbsp; 后复权日线 10年 &nbsp;|&nbsp; 周K线7根对数线性回归趋势评分</p>
   <div class="market-tabs">
     <button class="market-tab active" data-market="a"  onclick="setMarket('a')">🇨🇳 A股</button>
     <button class="market-tab"        data-market="hk" onclick="setMarket('hk')">🇭🇰 港股</button>
@@ -771,7 +771,7 @@
   <div class="screen-box" onclick="event.stopPropagation()">
 
     <div class="screen-header">
-      <h2>📈 趋势交易 &nbsp;<span style="color:var(--muted);font-size:.82rem;font-weight:400">周K线10根收盘价，归一化后对数线性回归</span></h2>
+      <h2>📈 趋势交易 &nbsp;<span style="color:var(--muted);font-size:.82rem;font-weight:400">周K线7根收盘价，归一化后对数线性回归</span></h2>
       <button class="modal-close" onclick="closeTrend()">✕</button>
     </div>
 
@@ -872,7 +872,7 @@
             <th onclick="setTrendSort('代码')">代码</th>
             <th onclick="setTrendSort('名称')">名称</th>
             <th onclick="setTrendSort('mkt')" title="总市值（亿）">市值</th>
-            <th onclick="setTrendSort('slope')" id="tth_slope" title="周K线10根对数回归斜率（%/周）；正值=上升趋势">斜率%/周<span class="sort-arrow"></span></th>
+            <th onclick="setTrendSort('slope')" id="tth_slope" title="周K线7根对数回归斜率（%/周）；正值=上升趋势">斜率%/周<span class="sort-arrow"></span></th>
             <th onclick="setTrendSort('r2')" id="tth_r2" title="趋势回归残差标准差（%）；越小说明走势越纯粹，与斜率高低无关">σ_res%<span class="sort-arrow"></span></th>
             <th onclick="setTrendSort('score')" id="tth_score" title="综合得分 = 斜率^1.1 / σ_res（信噪比）">得分<span class="sort-arrow"></span></th>
             <th onclick="setTrendSort('pe')" id="tth_pe" title="动态市盈率（腾讯实时）">PE<span class="sort-arrow"></span></th>
@@ -4018,13 +4018,13 @@ function _refreshHkStats() {
 
 const _MARKET_META = {
   a:  {
-    subtitle:  '市值 &gt; 300亿 &nbsp;|&nbsp; 后复权日线 10年 &nbsp;|&nbsp; 周K线10根对数线性回归趋势评分',
+    subtitle:  '市值 &gt; 300亿 &nbsp;|&nbsp; 后复权日线 10年 &nbsp;|&nbsp; 周K线7根对数线性回归趋势评分',
     lblTotal:  '符合条件公司',
     lblTotMkt: '总市值（万亿元）',
     lblAvgMkt: '平均市值（亿元）',
   },
   hk: {
-    subtitle:  '市值 &gt; 500亿港元 &nbsp;|&nbsp; 后复权日线 &nbsp;|&nbsp; 周K线10根对数线性回归趋势评分',
+    subtitle:  '市值 &gt; 500亿港元 &nbsp;|&nbsp; 后复权日线 &nbsp;|&nbsp; 周K线7根对数线性回归趋势评分',
     lblTotal:  '符合条件公司',
     lblTotMkt: '总市值（万亿港元）',
     lblAvgMkt: '平均市值（亿港元）',
