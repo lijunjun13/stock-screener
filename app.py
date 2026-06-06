@@ -2720,7 +2720,7 @@ def get_stocks():
         for group in buckets.values():
             group.sort(key=lambda x: x["市值亿"], reverse=True)
             n = _math.floor(len(group) * 0.1)
-            stocks.extend(group[:n])
+            stocks.extend(s for s in group[:n] if s["市值亿"] >= 300.0)
 
         stocks.sort(key=lambda x: x["市值亿"], reverse=True)
         for s in stocks:
