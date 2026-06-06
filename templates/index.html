@@ -4372,6 +4372,7 @@ let   _closes52wFetching = false;
 const _closes5yCache  = new Map();  // code → {pct10w, pct20w} from 5-year history
 let   _closes5yFetching = false;
 let   _phase2Ready = false;  // true only after applyTrendFilter() Phase 2 completes
+let   _lastRenderedRows = [];  // Phase 2 用：上次 renderTrendResults 渲染的行
 
 async function _fetchCloses5y(stocks) {
   const BATCH = 15;  // 5年数据量大，批次小一些
@@ -4786,7 +4787,10 @@ function renderTrendResults() {
     }
   }
 
-  document.getElementById('tFoundBadge').textContent = rows.length ? `${rows.length} 只` : '';
+  _lastRenderedRows = rows;
+  if (!_closes5yFetching) {
+    document.getElementById('tFoundBadge').textContent = rows.length ? `${rows.length} 只` : '';
+  }
 
   if (!rows.length) {
     const msg = trendAllResults.length === 0
@@ -4951,15 +4955,8 @@ async function applyTrendFilter() {
 
   if (!document.getElementById('tExcludeOverheat').checked) return;
 
-  // Phase 2：对 Phase 1 结果中未加载5年数据的股票，拉取5年K线算分位数
-  const phase1 = trendAllResults.filter(s => {
-    // 重跑一遍 Phase 1 过滤器（不含 overheating），取出当前可见的股票
-    if (_activeMarket === 'a'  &&  (s.is_hk || s.is_us)) return false;
-    if (_activeMarket === 'hk' && (!s.is_hk || s.is_us)) return false;
-    if (_activeMarket === 'us' && !s.is_us) return false;
-    return true;
-  });
-  const need5y = phase1.filter(s => !s._pct5y_loaded);
+  // Phase 2：对当前渲染行中未加载5年数据的股票，拉取5年K线算分位数
+  const need5y = _lastRenderedRows.filter(s => !s._pct5y_loaded);
   if (!need5y.length) {
     // 所有股票5年数据已就绪，直接激活过滤并最终渲染
     _phase2Ready = true;
@@ -4968,8 +4965,7 @@ async function applyTrendFilter() {
   }
 
   const badge = document.getElementById('tFoundBadge');
-  const p1Count = badge ? badge.textContent.match(/\d+/) : null;
-  if (badge) badge.textContent = `${p1Count ? p1Count[0] : phase1.length} 只（计算5年分位数…）`;
+  if (badge) badge.textContent = `${_lastRenderedRows.length} 只（计算5年分位数…）`;
   _closes5yFetching = true;
 
   await _fetchCloses5y(need5y);
