@@ -2263,9 +2263,8 @@ def _fetch_recent_highs(tc_code: str) -> tuple[float, float, float, float, float
     except Exception:
         pass
 
-    # max_high_50d_b = last_hfq (stable close for drawdown, not intraday cur_price)
-    # Using intraday cur_price distorts drawdown when today is a big move
-    return (round(max_c50, 4), round(last_hfq, 4), cur_price, atr, chg_pct)
+    # 回撤统一用昨收（last_hfq），不用盘中估算价，避免当天大涨/大跌扭曲回撤数字
+    return (round(max_c50, 4), round(last_hfq, 4), round(last_hfq, 4), atr, chg_pct)
 
 
 def _weekly_end_date() -> str:
@@ -2502,7 +2501,8 @@ def _fetch_us_recent_highs_scan(ticker: str):
             chg_live = round(float(fi.get("regularMarketChangePercent") or 0), 2)
         except Exception:
             pass
-        res = [round(max_h50, 4), round(max_h50, 4), round(last_c, 4), atr, chg_live]
+        last_c2 = closes[-2] if len(closes) >= 2 else closes[-1]  # 昨收
+        res = [round(max_h50, 4), round(max_h50, 4), round(last_c2, 4), atr, chg_live]
         _set(ck, res)
         return tuple(res)
     except Exception:
