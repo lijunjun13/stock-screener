@@ -520,6 +520,7 @@
         <th>#</th>
         <th>代码</th>
         <th>名称</th>
+        <th>申万二级</th>
         <th>总市值（亿）</th>
         <th>最新价</th>
         <th>涨跌幅</th>
@@ -527,7 +528,7 @@
       </tr>
     </thead>
     <tbody id="tBody">
-      <tr class="loading-row"><td colspan="7"><div class="spin"></div><div style="margin-top:12px;color:var(--muted)">正在获取 A 股数据…</div></td></tr>
+      <tr class="loading-row"><td colspan="8"><div class="spin"></div><div style="margin-top:12px;color:var(--muted)">正在获取 A 股数据…</div></td></tr>
     </tbody>
   </table>
 </div>
@@ -1039,7 +1040,7 @@ function onSort() {
 // ── render table ─────────────────────────────────────────────────────────────
 function renderTable() {
   document.getElementById('countBadge').textContent = `显示 ${view.length} / ${allStocks.length} 只`;
-  if (!view.length) { setTbody(`<tr><td colspan="7" style="text-align:center;padding:30px;color:var(--muted)">无匹配结果</td></tr>`); return; }
+  if (!view.length) { setTbody(`<tr><td colspan="8" style="text-align:center;padding:30px;color:var(--muted)">无匹配结果</td></tr>`); return; }
 
   const rows = view.map((s, i) => {
     const chg   = s['涨跌幅'];
@@ -1049,10 +1050,12 @@ function renderTable() {
     const wlCls = inWl ? 'btn-wl in-wl' : 'btn-wl';
     const wlTip = inWl ? '移出自选' : '加入自选';
     const wlChr = inWl ? '−' : '+';
+    const ind   = s['行业'] || '';
     return `<tr onclick="openModal('${s['代码']}','${s['名称']}')">
       <td class="rank">${i+1}</td>
       <td class="code">${s['代码']}</td>
       <td>${s['名称']}<button class="${wlCls}" title="${wlTip}" onclick="event.stopPropagation();wlToggle('${s['代码']}','${s['名称'].replace(/'/g,"&#39;")}')">${wlChr}</button></td>
+      <td style="font-size:.75rem;color:var(--muted)">${ind}</td>
       <td><span class="mktcap">${s['市值亿'].toFixed(0)}</span></td>
       <td>${s['最新价']}</td>
       <td class="${cls}">${sign}${chg.toFixed(2)}%</td>

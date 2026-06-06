@@ -686,7 +686,7 @@ def _fetch_a_stock_list(threshold_yi: float = 0.0) -> list[dict]:
                     "fltt": "2",       "invt": "2", "fid": "f20",
                     # 沪深主板 + 创业板（不含科创板/北交所）
                     "fs":   "m:0+t:6,m:1+t:2,m:1+t:23",
-                    "fields": "f2,f3,f9,f12,f14,f20",
+                    "fields": "f2,f3,f9,f12,f14,f20,f100",
                 },
                 timeout=15,
             )
@@ -727,6 +727,7 @@ def _fetch_a_stock_list(threshold_yi: float = 0.0) -> list[dict]:
                 result.append({
                     "代码":   code,
                     "名称":   str(item.get("f14") or ""),
+                    "行业":   str(item.get("f100") or "").replace("Ⅱ", ""),
                     "市值亿": round(mktcap, 1),
                     "最新价": price,
                     "涨跌幅": chg,
