@@ -3896,7 +3896,7 @@ async function wlLoad() {
     if (d.success) {
       _wlStocks = d.stocks;
       wlRender();
-      if (_activeMarket === 'a') renderTable();
+      if (_activeMarket === 'a') { renderTable(); if (_activeSubTab === 'etf') renderEtfTable(_aEtfData); }
       else if (_activeMarket === 'hk' && _hkStocks.length) renderHkTable();
       else if (_activeMarket === 'us' && _usStocks.length) renderUsTable();
       if (typeof renderTrendResults === 'function' && trendAllResults.length) renderTrendResults();
@@ -3962,6 +3962,7 @@ async function wlRemove(tcCode) {
     _wlStocks = _wlStocks.filter(s => s.tc_code !== tcCode);
     wlRender();
     renderTable();
+    if (_activeSubTab === 'etf') renderEtfTable(_aEtfData);
     if (typeof renderTrendResults === 'function' && trendAllResults.length) renderTrendResults();
   }
 }
