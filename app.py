@@ -3623,8 +3623,18 @@ def trend_closes52w():
     def _compute_one(s):
         code = s.get("代码", "")
         tc   = s.get("_tc", ("sh" if code.startswith("6") else "sz") + code)
+        is_us = tc.startswith("us")
         try:
-            lc  = _fetch_weekly_closes_long(tc, n=n_weeks)
+            if is_us:
+                import yfinance as yf
+                K   = _us_hfq_k_cached(code)
+                raw = yf.Ticker(code).history(period="5y", interval="1wk",
+                                              auto_adjust=False, actions=False)
+                if raw.empty:
+                    return code, {}
+                lc = [float(c) * K for c in raw["Adj Close"]]
+            else:
+                lc  = _fetch_weekly_closes_long(tc, n=n_weeks)
             arr = np.array(lc, dtype=float)
             n   = len(arr)
 
