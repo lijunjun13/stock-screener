@@ -736,7 +736,8 @@ def _fetch_a_stock_list(threshold_yi: float = 0.0) -> list[dict]:
                 })
 
             total = data.get("total") or 0
-            if page * PAGE >= total:
+            # API实际每页返回数量可能少于pz，用累计数判断是否拉完
+            if not total or len(result) >= total or len(diff) == 0:
                 break
             page += 1
             time.sleep(0.2)
@@ -2700,10 +2701,24 @@ def get_stocks():
     if cached:
         return jsonify(cached)
     try:
+        import math as _math
+        from collections import defaultdict
         all_stocks = _fetch_a_stock_list()
-        stocks = [s for s in all_stocks if s["市值亿"] >= 300.0]
-        if not stocks:
+        if not all_stocks:
             return jsonify({"success": False, "error": "股票列表为空，请稍后重试"}), 503
+
+        # 按申万二级行业分桶，每桶取市值 top 10%（向下取整）
+        buckets: dict[str, list] = defaultdict(list)
+        for s in all_stocks:
+            buckets[s.get("行业") or "其他"].append(s)
+
+        stocks = []
+        for group in buckets.values():
+            group.sort(key=lambda x: x["市值亿"], reverse=True)
+            n = _math.floor(len(group) * 0.1)
+            stocks.extend(group[:n])
+
+        stocks.sort(key=lambda x: x["市值亿"], reverse=True)
         for s in stocks:
             s["py"] = _py_initials(s.get("名称", ""))
         payload = {"success": True, "data": stocks, "total": len(stocks)}
