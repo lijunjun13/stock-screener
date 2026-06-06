@@ -831,6 +831,11 @@
           <input type="checkbox" id="tExcludeCyclical" onchange="renderTrendResults()" style="accent-color:var(--accent)">
           排除周期股
         </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap;font-size:.82rem;color:var(--text)"
+               title="10周涨幅分位和20周涨幅分位同时≥90%时排除（过热）">
+          <input type="checkbox" id="tExcludeOverheat" onchange="renderTrendResults()" checked style="accent-color:var(--accent)">
+          排除双高分位
+        </label>
       </div>
       <button class="btn-scan" id="btnTrendScan" onclick="startTrendScan(true)">▶ 开始扫描</button>
       <button class="btn-filter" onclick="renderTrendResults()">筛选</button>
@@ -4518,6 +4523,7 @@ function renderTrendResults() {
   const exLoss       = document.getElementById('tFExcludeLoss').checked;
   const exBank       = document.getElementById('tExcludeBank').checked;
   const exCyc        = document.getElementById('tExcludeCyclical').checked;
+  const exOverheat   = document.getElementById('tExcludeOverheat').checked;
 
   // Compute slope upper cutoff from the full scanned universe (all results)
   let slopeMax = Infinity;
@@ -4547,8 +4553,8 @@ function renderTrendResults() {
     }
     if (exBank && isBank(s.industry_board))               return false;
     if (exCyc  && isCyclical(s.industry_board))           return false;
-    // 10周和20周涨幅分位数同时 ≥90% → 过热排除
-    if ((s.pct10w ?? 0) >= 90 && (s.pct20w ?? 0) >= 90) return false;
+    // 10周和20周涨幅分位数同时 ≥90% → 过热排除（仅在数据已加载时判断）
+    if (exOverheat && s.pct10w != null && s.pct20w != null && s.pct10w >= 90 && s.pct20w >= 90) return false;
     if (document.getElementById('tFExcludeReverse').checked) {
       if (s.max_high_50d > 0 && s.last_close > 0 && s.atr_50d > 0) {
         const dd = (1 - s.max_high_50d_b * (1 + (s["涨跌幅"] ?? 0) / 100) / s.max_high_50d) * 100;
@@ -4927,8 +4933,9 @@ function clearTrendFilters() {
   document.getElementById('tFExcludeLoss').checked    = true;
   document.getElementById('tFExcludeReverse').checked  = true;
   document.getElementById('tFPenalty20w').checked      = true;
-  document.getElementById('tExcludeBank').checked     = false;
-  document.getElementById('tExcludeCyclical').checked = false;
+  document.getElementById('tExcludeBank').checked      = false;
+  document.getElementById('tExcludeCyclical').checked  = false;
+  document.getElementById('tExcludeOverheat').checked  = true;
   renderTrendResults();
 }
 
