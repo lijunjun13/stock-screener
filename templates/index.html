@@ -832,7 +832,7 @@
           排除周期股
         </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap;font-size:.82rem;color:var(--text)"
-               title="10周涨幅分位和20周涨幅分位同时≥90%时排除（过热）">
+               title="10周涨幅分位>70% 且 20周涨幅分位>80% 时排除（过热）">
           <input type="checkbox" id="tExcludeOverheat" onchange="renderTrendResults()" checked style="accent-color:var(--accent)">
           排除双高分位
         </label>
@@ -4553,8 +4553,8 @@ function renderTrendResults() {
     }
     if (exBank && isBank(s.industry_board))               return false;
     if (exCyc  && isCyclical(s.industry_board))           return false;
-    // 10周和20周涨幅分位数同时 ≥90% → 过热排除（仅在数据已加载时判断）
-    if (exOverheat && s.pct10w != null && s.pct20w != null && s.pct10w >= 90 && s.pct20w >= 90) return false;
+    // 10周分位>70% 且 20周分位>80% → 过热排除（仅在数据已加载时判断）
+    if (exOverheat && s.pct10w != null && s.pct20w != null && s.pct10w > 70 && s.pct20w > 80) return false;
     if (document.getElementById('tFExcludeReverse').checked) {
       if (s.max_high_50d > 0 && s.last_close > 0 && s.atr_50d > 0) {
         const dd = (1 - s.max_high_50d_b * (1 + (s["涨跌幅"] ?? 0) / 100) / s.max_high_50d) * 100;
