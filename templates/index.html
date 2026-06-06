@@ -1302,7 +1302,11 @@ function _drawKline(divId, rows, maWindows, _ignored) {
     const chg  = prev > 0 ? r.close - prev : 0;
     const pct  = prev > 0 ? chg / prev * 100 : 0;
     const cls  = chg >= 0 ? 'up' : 'dn';
-    const maStr = wins.map((w, wi) => `<span>MA${w}</span><b>${_fmt(md[wi]?.[i])}</b>`).join('');
+    const maStr = wins.map((w, wi) => `<span style="color:${maColors[wi]}">MA${w}</span><b style="color:${maColors[wi]}">${_fmt(md[wi]?.[i])}</b>`).join('');
+    const ma5v = md[0]?.[i], ma10v = md[1]?.[i], ma20v = md[2]?.[i];
+    const bullTag = (divId === 'stWeeklyDiv' && ma5v != null && ma10v != null && ma20v != null && ma5v > ma10v && ma10v > ma20v)
+      ? `<span style="margin-left:6px;padding:1px 6px;border-radius:3px;font-size:.72rem;background:#f8514922;color:#f85149;font-weight:600">多头排列↑</span>`
+      : '';
     barEl.innerHTML =
       `<span>${r.date}</span>` +
       `<span>开</span><b>${_fmt(r.open)}</b>` +
@@ -1310,7 +1314,7 @@ function _drawKline(divId, rows, maWindows, _ignored) {
       `<span>低</span><b>${_fmt(r.low)}</b>` +
       `<span>收</span><b class="${cls}">${_fmt(r.close)}</b>` +
       `<b class="${cls}">${chg>=0?'+':''}${_fmt(chg)} (${pct>=0?'+':''}${_fmt(pct)}%)</b>` +
-      maStr;
+      maStr + bullTag;
   }
   _renderKBar();
 
