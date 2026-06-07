@@ -2349,8 +2349,8 @@ def _fetch_weekly_closes_long(tc_code: str, n: int = 130) -> list[float]:
     return result
 
 
-def _fetch_weekly_closes_em(tc_code: str, n: int) -> list[float]:
-    """Eastmoney fallback for A-share weekly hfq closes (push2his klt=102)."""
+def _fetch_weekly_closes_em(tc_code: str, n: int, price_type: str = "close") -> list[float]:
+    """Eastmoney fallback for A-share weekly hfq prices (push2his klt=102)."""
     end = _weekly_end_date()
     beg_date = (datetime.strptime(end, "%Y-%m-%d") - timedelta(days=(n + 6) * 7)).strftime("%Y%m%d")
     end_date = end.replace("-", "")
@@ -2379,7 +2379,12 @@ def _fetch_weekly_closes_em(tc_code: str, n: int) -> list[float]:
             if parts[0].replace("-", "") > end_date:
                 continue
             try:
-                closes.append(float(parts[2]))
+                c = float(parts[2])
+                if price_type == "min_oc":
+                    o = float(parts[1]) if len(parts) > 1 else c
+                    closes.append(min(o, c))
+                else:
+                    closes.append(c)
             except (ValueError, IndexError):
                 pass
         return closes[-n:]
@@ -2387,17 +2392,24 @@ def _fetch_weekly_closes_em(tc_code: str, n: int) -> list[float]:
         return []
 
 
-def _fetch_weekly_closes(tc_code: str, n: int = 12) -> list[float]:
-    """Return last n weekly hfq-adjusted closing prices, oldest first.
+def _fetch_weekly_closes(tc_code: str, n: int = 12, price_type: str = "close") -> list[float]:
+    """Return last n weekly hfq-adjusted prices, oldest first.
 
+    price_type='close'  → closing price (default)
+    price_type='min_oc' → min(open, close) per week
     Primary: Tencent fqkline 'week' endpoint.
-    Fallback: Eastmoney push2his klt=102 (when Tencent is rate-limited).
-    Cached 12 h.
+    Fallback: Eastmoney push2his klt=102.
     """
+    def _pick(row) -> float:
+        c = float(row[2]) if row[2] else 0
+        if price_type == "min_oc":
+            o = float(row[1]) if len(row) > 1 and row[1] else c
+            return min(o, c)
+        return c
+
     result: list[float] = []
     try:
         end   = _weekly_end_date()
-        # Request enough history to guarantee n complete weeks
         start = (datetime.strptime(end, "%Y-%m-%d") - timedelta(days=(n + 6) * 7)).strftime("%Y-%m-%d")
         url = (
             "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get"
@@ -2409,25 +2421,24 @@ def _fetch_weekly_closes(tc_code: str, n: int = 12) -> list[float]:
         rows = (sd.get("hfqweek") or sd.get("qfqweek") or sd.get("week") or [])
         if rows and rows[-1][0] > end:
             rows = rows[:-1]
-        closes = [float(row[2]) for row in rows if row[2]]
-        result = closes[-n:]
+        result = [_pick(row) for row in rows if row[2]][-n:]
     except Exception:
         pass
-    # Eastmoney fallback for A-shares/ETFs when Tencent fails (e.g. rate-limit from non-CN IPs)
     if not result and not tc_code.startswith("hk"):
-        result = _fetch_weekly_closes_em(tc_code, n)
+        result = _fetch_weekly_closes_em(tc_code, n, price_type=price_type)
     return result
 
 
 # Trend scan state (independent of the main screener scan)
 _trend_scan: dict = {
-    "running": False, "done": False, "idx": 0, "total": 0, "results": []
+    "running": False, "done": False, "idx": 0, "total": 0, "results": [],
+    "slope_type": "close",
 }
 _trend_lock = threading.Lock()
 
 
-def _fetch_us_weekly_closes_scan(ticker: str, n: int = 22) -> list[float]:
-    """Return last n weekly 后复权 closes for US trend scan. Cached 2 h."""
+def _fetch_us_weekly_closes_scan(ticker: str, n: int = 22, price_type: str = "close") -> list[float]:
+    """Return last n weekly 后复权 prices for US trend scan. Cached 2 h."""
     try:
         import yfinance as yf
         raw = yf.Ticker(ticker).history(period="2y", interval="1wk",
@@ -2435,8 +2446,12 @@ def _fetch_us_weekly_closes_scan(ticker: str, n: int = 22) -> list[float]:
         if raw.empty:
             return []
         K = _us_hfq_k_cached(ticker)
-        closes = [round(float(c) * K, 4) for c in raw["Adj Close"]]
-        return closes[-n:]
+        if price_type == "min_oc":
+            prices = [round(min(float(o), float(c)) * K, 4)
+                      for o, c in zip(raw["Open"], raw["Adj Close"])]
+        else:
+            prices = [round(float(c) * K, 4) for c in raw["Adj Close"]]
+        return prices[-n:]
     except Exception:
         return []
 
@@ -2467,7 +2482,7 @@ def _fetch_us_recent_highs_scan(ticker: str):
         return 0.0, 0.0, 0.0, 0.0, None
 
 
-def _run_trend_scan(stock_list: list[dict]) -> None:
+def _run_trend_scan(stock_list: list[dict], slope_type: str = "close") -> None:
     with _trend_lock:
         if _trend_scan["running"]:
             return
@@ -2482,9 +2497,9 @@ def _run_trend_scan(stock_list: list[dict]) -> None:
         try:
             n_weeks = 7
             if is_us:
-                closes_all = _fetch_us_weekly_closes_scan(code, n=22)
+                closes_all = _fetch_us_weekly_closes_scan(code, n=22, price_type=slope_type)
             else:
-                closes_all = _fetch_weekly_closes(tc, n=22)
+                closes_all = _fetch_weekly_closes(tc, n=22, price_type=slope_type)
             if len(closes_all) < 5:
                 return None
             closes = closes_all[-n_weeks:]
@@ -3614,11 +3629,13 @@ def trend_start():
         return jsonify({"error": f"加载股票列表失败：{exc}"}), 400
     if not cl.get("data"):
         return jsonify({"error": "股票列表为空，请稍后重试"}), 400
+    slope_type = body.get("slope_type", "close")
     force = (request.args.get("force") == "1") or body.get("force", False)
     with _trend_lock:
-        already_running = _trend_scan["running"]
-        already_done    = _trend_scan["done"] and len(_trend_scan["results"]) > 0
-    if already_done and not force:
+        already_running  = _trend_scan["running"]
+        already_done     = _trend_scan["done"] and len(_trend_scan["results"]) > 0
+        cached_slope_type = _trend_scan.get("slope_type", "close")
+    if already_done and not force and cached_slope_type == slope_type:
         return jsonify({"ok": True, "cached": True, "total": _trend_scan["total"]})
     if not already_running:
         stock_list = cl["data"]
@@ -3626,9 +3643,10 @@ def trend_start():
             _trend_scan.update({
                 "running": False, "done": False, "idx": 0,
                 "total":   len(stock_list), "results": [],
+                "slope_type": slope_type,
             })
         threading.Thread(
-            target=_run_trend_scan, args=(stock_list,), daemon=True
+            target=_run_trend_scan, args=(stock_list, slope_type), daemon=True
         ).start()
     return jsonify({"ok": True, "cached": False, "total": len(cl["data"])})
 

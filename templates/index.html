@@ -846,6 +846,10 @@
           <span>%</span>
         </div>
       </div>
+      <select id="tSlopeType" title="斜率回归用价" style="background:#161b22;border:1px solid #30363d;border-radius:4px;color:var(--text);font-size:.75rem;padding:3px 6px;cursor:pointer">
+        <option value="close" selected>回归：收盘价</option>
+        <option value="min_oc">回归：min(开/收)</option>
+      </select>
       <button class="btn-scan" id="btnTrendScan" onclick="startTrendScan(true)">▶ 开始扫描</button>
       <button class="btn-filter" onclick="applyTrendFilter()">筛选</button>
       <button class="btn-clear-filter" onclick="clearTrendFilters()">清空</button>
@@ -5038,7 +5042,7 @@ function startTrendScan(force = false) {
   fetch('/api/trend/start', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({force, market: _activeMarket}),
+    body: JSON.stringify({force, market: _activeMarket, slope_type: document.getElementById('tSlopeType').value}),
   })
   .then(r => r.json())
   .then(d => {
