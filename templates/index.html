@@ -4741,8 +4741,8 @@ function renderTrendResults() {
           }
         }
       }
-      // Cumulative penalty — each additional correlated stock ×0.5
-      const cp = Math.pow(0.5, corrCount);
+      // Cumulative penalty — each additional correlated stock ×0.5 (A股不打压集中度)
+      const cp = _activeMarket === 'a' ? 1.0 : Math.pow(0.5, corrCount);
       const mp = momentumPenalty(s);
       const op = overextPenalty(s);
       s._corr_count    = corrCount;
@@ -4765,7 +4765,7 @@ function renderTrendResults() {
           const lvl = op <= 0.75 ? '×0.75' : op <= 0.85 ? '×0.85' : '×0.95';
           tags.push({label: `超涨${lvl}`, color: '#e3b341'});
         }
-        if (corrCount > 0) {
+        if (corrCount > 0 && _activeMarket !== 'a') {
           const pct = maxCorr > 0 ? (maxCorr * 100).toFixed(0) : '?';
           const tip = maxCorrName ? `与「${maxCorrName}」52周相关性 ${pct}%` : `集中惩罚 ×${corrCount}`;
           tags.push({label: `集中×${corrCount}`, color: '#a78bfa', title: tip});
