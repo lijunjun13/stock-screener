@@ -2696,9 +2696,9 @@ def get_stocks():
             for s in group[:2]:
                 in_bucket_top.add(s["代码"])
 
-        # 并集：行业 top2 或 市值 ≥1000亿
+        # 行业 top2 且 市值 ≥1000亿
         stocks = [s for s in all_stocks
-                  if s["代码"] in in_bucket_top or s["市值亿"] >= 1000.0]
+                  if s["代码"] in in_bucket_top and s["市值亿"] >= 1000.0]
         stocks.sort(key=lambda x: x["市值亿"], reverse=True)
         for s in stocks:
             s["py"] = _py_initials(s.get("名称", ""))
@@ -3584,7 +3584,7 @@ def _build_trend_stock_list(market: str = "a") -> dict:
             for s in group[:2]:
                 in_bucket_top.add(s["代码"])
         selected = [s for s in all_s
-                    if s["代码"] in in_bucket_top or s["市值亿"] >= 1000.0]
+                    if s["代码"] in in_bucket_top and s["市值亿"] >= 1000.0]
         selected.sort(key=lambda x: x["市值亿"], reverse=True)
         for s in selected:
             s["py"] = _py_initials(s.get("名称", ""))
