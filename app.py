@@ -3536,6 +3536,22 @@ def _build_trend_stock_list(market: str = "a") -> dict:
             s["is_hk"]  = False
             s["is_etf"] = False
             s.setdefault("pe", 0.0)
+        # 追加美股 ETF（去重）
+        existing_codes = {s["代码"] for s in us}
+        for e in _US_ETFS:
+            if e["代码"] not in existing_codes:
+                us.append({
+                    "代码":          e["代码"],
+                    "名称":          e["名称"],
+                    "市值亿":        9999,
+                    "pe":            0.0,
+                    "is_us":         True,
+                    "is_hk":         False,
+                    "is_etf":        True,
+                    "industry_board": e.get("类别", "行业ETF"),
+                    "_tc":           f"us{e['代码']}",
+                    "涨跌幅":        0.0,
+                })
         return {"success": True, "data": us, "total": len(us)}
 
     if market == "hk":
