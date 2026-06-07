@@ -3084,7 +3084,7 @@ def _resolve_tc(code: str) -> str:
 
 # ── Watchlist ─────────────────────────────────────────────────────────────────
 _WATCHLIST_KEY  = "watchlist_v1"
-_WATCHLIST_MAX  = 20
+_WATCHLIST_MAX  = 100
 _wl_mem: list[dict] = []
 _wl_lock = threading.Lock()
 _WATCHLIST_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".watchlist.json")

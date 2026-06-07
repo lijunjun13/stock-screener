@@ -97,11 +97,9 @@
   .wl-header { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
   .wl-title { color: #8b949e; font-size: .75rem; font-weight: 600; letter-spacing: .05em; }
   .wl-count { color: #8b949e; font-size: .7rem; }
-  .wl-scroll { display: flex; align-items: stretch; gap: 8px; overflow-x: auto;
-               padding: 2px 0 6px; scrollbar-width: thin; scrollbar-color: #30363d transparent; }
-  .wl-scroll::-webkit-scrollbar { height: 4px; }
-  .wl-scroll::-webkit-scrollbar-thumb { background: #30363d; border-radius: 2px; }
-  .wl-card { position: relative; flex: 0 0 auto; width: 118px;
+  .wl-scroll { display: grid; grid-template-columns: repeat(10, 1fr);
+               gap: 8px; padding: 2px 0 6px; }
+  .wl-card { position: relative; width: 100%;
              background: #161b22; border: 1px solid #30363d; border-radius: 8px;
              padding: 8px 10px 8px; cursor: pointer; transition: border-color .15s; }
   .wl-card:hover { border-color: #58a6ff; }
@@ -114,7 +112,7 @@
             color: #8b949e; cursor: pointer; font-size: .78rem; line-height: 1;
             padding: 1px 3px; border-radius: 3px; transition: color .12s; }
   .wl-del:hover { color: #f85149; }
-  .wl-add-btn { flex: 0 0 auto; width: 44px; min-height: 74px;
+  .wl-add-btn { width: 100%; min-height: 74px;
                 background: #161b22; border: 1px dashed #30363d; border-radius: 8px;
                 color: #58a6ff; font-size: 1.4rem; cursor: pointer;
                 display: flex; align-items: center; justify-content: center;
@@ -3912,7 +3910,7 @@ async function wlLoad() {
 function wlRender() {
   const scroll = document.getElementById('wlScroll');
   const countEl = document.getElementById('wlCount');
-  countEl.textContent = _wlStocks.length ? `${_wlStocks.length} / 20` : '';
+  countEl.textContent = _wlStocks.length ? `${_wlStocks.length} / 100` : '';
 
   let html = '';
   for (const s of _wlStocks) {
