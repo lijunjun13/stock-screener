@@ -2079,7 +2079,7 @@ def _py_initials(name: str) -> str:
 
 
 def _fetch_us_stocks() -> list[dict]:
-    """Fetch US large-cap stocks (≥ 300亿USD = $30B) via Yahoo Finance."""
+    """Fetch US large-cap stocks (≥ 2000亿USD = $200B) via Yahoo Finance."""
     cache_key = "us_stocks_v3"
     cached = _get(cache_key, ttl=300)   # 5-minute TTL for real-time prices
     if cached:
@@ -2088,7 +2088,7 @@ def _fetch_us_stocks() -> list[dict]:
     tickers = _fetch_us_ticker_list()
     quotes  = _yf_quote_batch(tickers)
 
-    MIN_MKT = 300.0   # 亿USD
+    MIN_MKT = 2000.0  # 亿USD
     stocks: list[dict] = []
     for sym, q in quotes.items():
         mktcap = float(q.get("marketCap") or 0) / 1e8
@@ -2739,7 +2739,7 @@ def get_hk_stocks():
 
 @app.route("/api/us_stocks")
 def get_us_stocks():
-    """返回市值 ≥ 300亿美元的美股列表（数据全部来自 Yahoo Finance）。"""
+    """返回市值 ≥ 2000亿美元的美股列表（数据全部来自 Yahoo Finance）。"""
     stocks = _fetch_us_stocks()
     if not stocks:
         return jsonify({"success": False, "error": "获取美股数据失败"}), 503
@@ -3527,7 +3527,7 @@ def _build_trend_stock_list(market: str = "a") -> dict:
 
     market='a'  → A-shares ≥100亿 + curated ETFs  (cached 24 h)
     market='hk' → HK main-board stocks only        (cached 24 h)
-    market='us' → S&P500 + supplements ≥300亿USD   (cached 1 h)
+    market='us' → S&P500 + supplements ≥2000亿USD  (cached 1 h)
     """
     if market == "us":
         us = _fetch_us_stocks()
