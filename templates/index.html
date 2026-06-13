@@ -4608,16 +4608,14 @@ function renderTrendResults() {
     return true;
   };
 
-  // 自选股豁免斜率/估值等过滤，但必须符合当前市场模式（A股/港股）
+  // 自选股置顶栏：豁免所有过滤，只要市场匹配
   const _marketOk = s =>
     !(_activeMarket === 'a'  &&  (s.is_hk || s.is_us)) &&
     !(_activeMarket === 'hk' && (!s.is_hk || s.is_us)) &&
     !(_activeMarket === 'us' && !s.is_us);
   const wlPinned = trendAllResults.filter(s => _wlCodeSet.has(s.代码) && _marketOk(s));
-  let rows = [
-    ...wlPinned,
-    ...trendAllResults.filter(s => !_wlCodeSet.has(s.代码) && _passFilter(s)),
-  ];
+  // 普通筛选行（自选股如果通过 filter 也会再次出现在斜率桶中）
+  let rows = trendAllResults.filter(s => _passFilter(s));
 
   // Score = slope^1.1 / σ_res：信噪比形式，去除 slope 封顶和线性相减
   const score = s => (s.trend_slope > 0 && (s.sigma_res ?? 0) > 0)
@@ -4763,11 +4761,9 @@ function renderTrendResults() {
 
   let _globalRank = 1;
   const _htmlParts = [];
-  for (const bi of sortedBuckets) {
-    const arr = bucketMap.get(bi);
-    _htmlParts.push(`<tr style="pointer-events:none;background:rgba(88,166,255,.06)"><td colspan="20" style="padding:5px 14px;font-size:.75rem;color:#58a6ff;font-weight:600;letter-spacing:.2px;border-top:1px solid rgba(88,166,255,.18)">▸ 斜率 ${bucketLbl(bi)}&nbsp;&nbsp;<span style="opacity:.5;font-weight:400">${arr.length} 只</span></td></tr>`);
-    arr.forEach(s => {
-      const _rank = _globalRank++;
+
+  // ── Shared row renderer ──────────────────────────────────────────────────
+  const _rowHtml = (s, _rank) => {
       const sl = s.trend_slope;
       const slSign  = sl >= 0 ? '+' : '';
       const slColor = sl >= 2 ? '#3fb950' : sl >= 0.5 ? '#e3b341' : sl >= 0 ? '#c9d1d9' : '#f85149';
@@ -4809,8 +4805,8 @@ function renderTrendResults() {
 
       const isWlPin = _wlCodeSet.has(s.代码);
       const trStyle = isWlPin ? ' style="background:rgba(227,179,65,.06);border-left:2px solid #e3b341"' : '';
-      _htmlParts.push(`<tr onclick="${rowClick}"${trStyle}>
-        <td class="rank">${isWlPin ? '⭐' : _rank}</td>
+      return `<tr onclick="${rowClick}"${trStyle}>
+        <td class="rank">${_rank}</td>
         <td class="code">${s.代码}${typeBadge}</td>
         <td style="white-space:nowrap">${s.名称}${ddBadge}${wlBtnT}<span
           onmouseenter="showCorrPanel('${s.代码}',this)"
@@ -4883,9 +4879,25 @@ function renderTrendResults() {
         }</td>
         <td style="font-size:.78rem;color:var(--muted)">${s.industry_board || '—'}</td>
         <td><button class="btn-analyze" onclick="${btnClick}">图表</button></td>
-      </tr>`);
+      </tr>`;
+  };
+
+  // ── 自选股置顶栏（豁免过滤，始终显示）────────────────────────────────────────
+  if (wlPinned.length > 0) {
+    _htmlParts.push(`<tr style="pointer-events:none;background:rgba(227,179,65,.07)"><td colspan="20" style="padding:5px 14px;font-size:.75rem;color:#e3b341;font-weight:600;letter-spacing:.2px;border-top:1px solid rgba(227,179,65,.25)">⭐ 自选股&nbsp;&nbsp;<span style="opacity:.5;font-weight:400">${wlPinned.length} 只</span></td></tr>`);
+    wlPinned.forEach(s => _htmlParts.push(_rowHtml(s, '⭐')));
+  }
+
+  // ── 斜率桶（包括通过 filter 的自选股）──────────────────────────────────────
+  for (const bi of sortedBuckets) {
+    const arr = bucketMap.get(bi);
+    _htmlParts.push(`<tr style="pointer-events:none;background:rgba(88,166,255,.06)"><td colspan="20" style="padding:5px 14px;font-size:.75rem;color:#58a6ff;font-weight:600;letter-spacing:.2px;border-top:1px solid rgba(88,166,255,.18)">▸ 斜率 ${bucketLbl(bi)}&nbsp;&nbsp;<span style="opacity:.5;font-weight:400">${arr.length} 只</span></td></tr>`);
+    arr.forEach(s => {
+      const rankLabel = _wlCodeSet.has(s.代码) ? '⭐' : _globalRank++;
+      _htmlParts.push(_rowHtml(s, rankLabel));
     });
   }
+
   document.getElementById('trendTbody').innerHTML = _htmlParts.join('');
 
   // 拉 52w 数据用于走势图 / 集中度相关性（不触发重新筛选，只补全显示）
