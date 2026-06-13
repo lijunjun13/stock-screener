@@ -799,8 +799,8 @@
           排除亏损股
         </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap;font-size:.82rem;color:var(--text)"
-               title="回撤 > 2×ATR 时过滤；> 1×ATR 得分×0.85（ATR = 近50日日涨跌幅绝对值均值）">
-          <input type="checkbox" id="tFExcludeReverse" onchange="renderTrendResults()" style="accent-color:var(--accent)">
+               title="排除回撤 > 8% 或 > 3×ATR 的个股（ATR = 近50日日涨跌幅绝对值均值）">
+          <input type="checkbox" id="tFExcludeReverse" onchange="renderTrendResults()" checked style="accent-color:var(--accent)">
           排除反转股
         </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap;font-size:.82rem;color:var(--text)"
@@ -4602,7 +4602,7 @@ function renderTrendResults() {
     if (document.getElementById('tFExcludeReverse').checked) {
       if (s.max_high_50d > 0 && s.last_close > 0 && s.atr_50d > 0) {
         const dd = (1 - s.max_high_50d_b * (1 + (s["涨跌幅"] ?? 0) / 100) / s.max_high_50d) * 100;
-        if (dd > 2 * s.atr_50d) return false;
+        if (dd > 8 || dd > 3 * s.atr_50d) return false;
       }
     }
     return true;
@@ -4948,7 +4948,7 @@ function clearTrendFilters() {
   document.getElementById('tFGainMax').value     = '4';
   document.getElementById('tFR2').value         = '5';
   document.getElementById('tFExcludeLoss').checked    = true;
-  document.getElementById('tFExcludeReverse').checked  = false;
+  document.getElementById('tFExcludeReverse').checked  = true;
   document.getElementById('tFPenalty20w').checked      = true;
   document.getElementById('tExcludeBank').checked      = false;
   document.getElementById('tExcludeCyclical').checked  = false;
