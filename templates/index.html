@@ -4882,12 +4882,6 @@ function renderTrendResults() {
       </tr>`;
   };
 
-  // ── 自选股置顶栏（豁免过滤，始终显示）────────────────────────────────────────
-  if (wlPinned.length > 0) {
-    _htmlParts.push(`<tr style="pointer-events:none;background:rgba(227,179,65,.07)"><td colspan="20" style="padding:5px 14px;font-size:.75rem;color:#e3b341;font-weight:600;letter-spacing:.2px;border-top:1px solid rgba(227,179,65,.25)">⭐ 自选股&nbsp;&nbsp;<span style="opacity:.5;font-weight:400">${wlPinned.length} 只</span></td></tr>`);
-    wlPinned.forEach(s => _htmlParts.push(_rowHtml(s, '⭐')));
-  }
-
   // ── 斜率桶（包括通过 filter 的自选股）──────────────────────────────────────
   for (const bi of sortedBuckets) {
     const arr = bucketMap.get(bi);
@@ -4896,6 +4890,12 @@ function renderTrendResults() {
       const rankLabel = _wlCodeSet.has(s.代码) ? '⭐' : _globalRank++;
       _htmlParts.push(_rowHtml(s, rankLabel));
     });
+  }
+
+  // ── 自选股置底栏（豁免过滤，始终显示）────────────────────────────────────────
+  if (wlPinned.length > 0) {
+    _htmlParts.push(`<tr style="pointer-events:none;background:rgba(227,179,65,.07)"><td colspan="20" style="padding:5px 14px;font-size:.75rem;color:#e3b341;font-weight:600;letter-spacing:.2px;border-top:1px solid rgba(227,179,65,.25)">⭐ 自选股&nbsp;&nbsp;<span style="opacity:.5;font-weight:400">${wlPinned.length} 只</span></td></tr>`);
+    wlPinned.forEach(s => _htmlParts.push(_rowHtml(s, '⭐')));
   }
 
   document.getElementById('trendTbody').innerHTML = _htmlParts.join('');
