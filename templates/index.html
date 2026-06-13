@@ -800,7 +800,7 @@
         </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap;font-size:.82rem;color:var(--text)"
                title="回撤 > 2×ATR 时过滤；> 1×ATR 得分×0.85（ATR = 近50日日涨跌幅绝对值均值）">
-          <input type="checkbox" id="tFExcludeReverse" onchange="renderTrendResults()" checked style="accent-color:var(--accent)">
+          <input type="checkbox" id="tFExcludeReverse" onchange="renderTrendResults()" style="accent-color:var(--accent)">
           排除反转股
         </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap;font-size:.82rem;color:var(--text)"
@@ -809,16 +809,7 @@
           20周超涨惩罚
         </label>
       </div>
-      <div class="filter-group">
-        <label>排序</label>
-        <select id="tSort" onchange="renderTrendResults()">
-          <option value="score_desc">综合得分 ↓ (斜率/σ_res)</option>
-          <option value="slope_desc">斜率 ↓</option>
-          <option value="slope_asc">斜率 ↑</option>
-          <option value="r2_desc">σ_res ↑ (噪声小优先)</option>
-          <option value="mkt_desc">市值 ↓</option>
-        </select>
-      </div>
+
       <div class="filter-group" style="justify-content:flex-end;gap:8px">
         <label>&nbsp;</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap;font-size:.82rem;color:var(--text)">
@@ -876,6 +867,7 @@
             <th onclick="setTrendSort('mkt')" title="总市值（亿）">市值</th>
             <th onclick="setTrendSort('slope')" id="tth_slope" title="周K线7根对数回归斜率（%/周）；正值=上升趋势">斜率%/周<span class="sort-arrow"></span></th>
             <th onclick="setTrendSort('r2')" id="tth_r2" title="趋势回归残差标准差（%）；越小说明走势越纯粹，与斜率高低无关">σ_res%<span class="sort-arrow"></span></th>
+            <th onclick="setTrendSort('tr2')" id="tth_tr2" title="趋势回归R²（%）；越大说明价格线性趋势越强">R²%<span class="sort-arrow"></span></th>
             <th onclick="setTrendSort('score')" id="tth_score" title="综合得分 = 斜率^1.1 / σ_res（信噪比）">得分<span class="sort-arrow"></span></th>
             <th onclick="setTrendSort('pe')" id="tth_pe" title="动态市盈率（腾讯实时）">PE<span class="sort-arrow"></span></th>
             <th onclick="setTrendSort('gain')" id="tth_gain" title="7周累计涨幅（首根收盘→末根收盘）">7周涨幅<span class="sort-arrow"></span></th>
@@ -892,7 +884,7 @@
           </tr>
         </thead>
         <tbody id="trendTbody">
-          <tr><td colspan="14" style="text-align:center;padding:40px;color:var(--muted)">点击「开始扫描」获取全部股票的周K趋势数据（约需 3–5 分钟）</td></tr>
+          <tr><td colspan="20" style="text-align:center;padding:40px;color:var(--muted)">点击「开始扫描」获取全部股票的周K趋势数据（约需 3–5 分钟）</td></tr>
         </tbody>
       </table>
     </div>
@@ -4630,56 +4622,8 @@ function renderTrendResults() {
     ? Math.pow(s.trend_slope, 1.1) / s.sigma_res
     : 0;
 
-  // Sort
-  const sk = trendSortKey, sd = trendSortDir;
-  if (sk === 'slope') {
-    rows.sort((a,b) => sd==='asc' ? a.trend_slope - b.trend_slope : b.trend_slope - a.trend_slope);
-  } else if (sk === 'r2') {
-    // "r2_desc" option now sorts by sigma_res ascending (less noise = better)
-    rows.sort((a,b) => sd==='asc' ? (b.sigma_res??Infinity) - (a.sigma_res??Infinity) : (a.sigma_res??Infinity) - (b.sigma_res??Infinity));
-  } else if (sk === 'mkt') {
-    rows.sort((a,b) => sd==='asc' ? a.市值亿 - b.市值亿 : b.市值亿 - a.市值亿);
-  } else if (sk === 'gain') {
-    const gainOf = s => s.ret7w ?? -Infinity;
-    rows.sort((a,b) => sd==='asc' ? gainOf(a) - gainOf(b) : gainOf(b) - gainOf(a));
-  } else if (sk === 'ret20') {
-    rows.sort((a,b) => {
-      const av = a.ret20w ?? -Infinity, bv = b.ret20w ?? -Infinity;
-      return sd==='asc' ? av - bv : bv - av;
-    });
-  } else if (sk === 'drawdown') {
-    const ddOf = s => (s.max_high_50d && s.last_close) ? (1 - s.max_high_50d_b * (1 + (s["涨跌幅"] ?? 0) / 100) / s.max_high_50d) * 100 : Infinity;
-    rows.sort((a,b) => sd==='asc' ? ddOf(a) - ddOf(b) : ddOf(b) - ddOf(a));
-  } else if (sk === 'atr') {
-    rows.sort((a,b) => {
-      const av = a.atr_50d ?? -Infinity, bv = b.atr_50d ?? -Infinity;
-      return sd==='asc' ? av - bv : bv - av;
-    });
-  } else if (sk === 'pct7w') {
-    rows.sort((a,b) => {
-      const av = a.pct7w ?? -Infinity, bv = b.pct7w ?? -Infinity;
-      return sd==='asc' ? av - bv : bv - av;
-    });
-  } else if (sk === 'pct20w') {
-    rows.sort((a,b) => {
-      const av = a.pct20w ?? -Infinity, bv = b.pct20w ?? -Infinity;
-      return sd==='asc' ? av - bv : bv - av;
-    });
-  } else if (sk === 'chgToday') {
-    rows.sort((a,b) => {
-      const av = a['涨跌幅'] ?? -Infinity, bv = b['涨跌幅'] ?? -Infinity;
-      return sd==='asc' ? av - bv : bv - av;
-    });
-  } else if (sk === 'pe') {
-    rows.sort((a,b) => {
-      const av = (a.pe > 0) ? a.pe : Infinity;
-      const bv = (b.pe > 0) ? b.pe : Infinity;
-      return sd==='asc' ? av - bv : bv - av;
-    });
-  } else {
-    // score desc (default)
-    rows.sort((a,b) => score(b) - score(a));
-  }
+  // Initial order for penalty computation: slope descending
+  rows.sort((a, b) => b.trend_slope - a.trend_slope);
 
   // ── Correlation-based concentration penalty (2 iterations) ─────────────
   // Pre-compute log returns from the 52-week weekly closes (sent by backend).
@@ -4779,23 +4723,6 @@ function renderTrendResults() {
   window._trendRows  = rows;        // expose for correlation hover panel
   window._trendLrMap = _lrMap;
 
-  // Update sort arrows
-  ['tth_slope','tth_r2','tth_score','tth_pe','tth_gain','tth_ret20','tth_drawdown','tth_atr','tth_pct7w','tth_pct20w','tth_chgToday'].forEach(id => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    el.classList.remove('active-sort');
-    const sa = el.querySelector('.sort-arrow');
-    if (sa) sa.textContent = '';
-  });
-  const thMap = { slope:'tth_slope', r2:'tth_r2', score:'tth_score', pe:'tth_pe', gain:'tth_gain', ret20:'tth_ret20', drawdown:'tth_drawdown', atr:'tth_atr', pct7w:'tth_pct7w', pct20w:'tth_pct20w', chgToday:'tth_chgToday' };
-  if (thMap[sk]) {
-    const el = document.getElementById(thMap[sk]);
-    if (el) {
-      el.classList.add('active-sort');
-      el.querySelector('.sort-arrow').textContent = trendSortDir === 'asc' ? ' ↑' : ' ↓';
-    }
-  }
-
   _lastRenderedRows = rows;
   if (!_closes5yFetching) {
     document.getElementById('tFoundBadge').textContent = rows.length ? `${rows.length} 只` : '';
@@ -4806,7 +4733,7 @@ function renderTrendResults() {
       ? '暂无数据——扫描可能遇到 API 限速，请点击「↻ 重新扫描」重试'
       : '无符合条件的股票，请放宽筛选条件';
     document.getElementById('trendTbody').innerHTML =
-      `<tr><td colspan="14" style="text-align:center;padding:30px;color:var(--muted)">${msg}</td></tr>`;
+      `<tr><td colspan="20" style="text-align:center;padding:30px;color:var(--muted)">${msg}</td></tr>`;
     document.getElementById('trendMobileCards').innerHTML =
       `<div style="text-align:center;padding:40px 0;color:var(--muted)">${msg}</div>`;
     return;
@@ -4819,131 +4746,145 @@ function renderTrendResults() {
   }
   document.getElementById('trendMobileCards').innerHTML = '';
 
-  document.getElementById('trendTbody').innerHTML = rows.map((s, i) => {
-    const sl = s.trend_slope;
-    const slSign  = sl >= 0 ? '+' : '';
-    const slColor = sl >= 2 ? '#3fb950' : sl >= 0.5 ? '#e3b341' : sl >= 0 ? '#c9d1d9' : '#f85149';
+  // ── Bucket rendering: group by slope (0.5% step), sort within by R² desc ──
+  const BSTEP = 0.5;
+  const biOf = s => s.trend_slope >= 5.0 ? 10 : Math.floor(s.trend_slope / BSTEP);
+  const bucketMap = new Map();
+  rows.forEach(s => {
+    const bi = biOf(s);
+    if (!bucketMap.has(bi)) bucketMap.set(bi, []);
+    bucketMap.get(bi).push(s);
+  });
+  bucketMap.forEach(arr => arr.sort((a, b) => (b.trend_r2 ?? 0) - (a.trend_r2 ?? 0)));
+  const sortedBuckets = [...bucketMap.keys()].sort((a, b) => b - a);
+  const bucketLbl = bi => bi >= 10 ? '5.0%+' : `${(bi * BSTEP).toFixed(1)}%~${((bi + 1) * BSTEP).toFixed(1)}%`;
 
-    const r2 = s.sigma_res;
-    const r2Color = r2 > 0 ? (r2 <= 3 ? '#3fb950' : r2 <= 6 ? '#e3b341' : '#c9d1d9') : 'var(--muted)';
+  let _globalRank = 1;
+  const _htmlParts = [];
+  for (const bi of sortedBuckets) {
+    const arr = bucketMap.get(bi);
+    _htmlParts.push(`<tr style="pointer-events:none;background:rgba(88,166,255,.06)"><td colspan="20" style="padding:5px 14px;font-size:.75rem;color:#58a6ff;font-weight:600;letter-spacing:.2px;border-top:1px solid rgba(88,166,255,.18)">▸ 斜率 ${bucketLbl(bi)}&nbsp;&nbsp;<span style="opacity:.5;font-weight:400">${arr.length} 只</span></td></tr>`);
+    arr.forEach(s => {
+      const _rank = _globalRank++;
+      const sl = s.trend_slope;
+      const slSign  = sl >= 0 ? '+' : '';
+      const slColor = sl >= 2 ? '#3fb950' : sl >= 0.5 ? '#e3b341' : sl >= 0 ? '#c9d1d9' : '#f85149';
 
-    // Show penalty-adjusted score
-    const sc = s._adj_score ?? score(s);
-    const scColor = sc >= 0.5 ? '#3fb950' : sc >= 0.2 ? '#e3b341' : '#c9d1d9';
+      const sigRes = s.sigma_res;
+      const sigColor = sigRes > 0 ? (sigRes <= 3 ? '#3fb950' : sigRes <= 6 ? '#e3b341' : '#c9d1d9') : 'var(--muted)';
 
-    const pe = s.pe ?? 0;
-    const peStr   = pe > 0 ? pe.toFixed(1) : (pe < 0 ? '<span style="color:var(--muted)">亏损</span>' : '<span style="color:var(--muted)">—</span>');
-    const peColor = pe > 0 && pe < 30 ? '#3fb950' : pe >= 30 && pe < 60 ? '#e3b341' : pe >= 60 ? '#c9d1d9' : '';
+      const tr2 = s.trend_r2 ?? null;
+      const tr2Color = tr2 == null ? 'var(--muted)' : (tr2 >= 70 ? '#3fb950' : tr2 >= 50 ? '#e3b341' : '#c9d1d9');
 
-    // Rank-change badge
-    const diff = s._orig_rank - s._new_rank;   // positive = moved up
-    const rankBadge = diff === 0 ? '' :
-      diff > 0
-        ? `<span style="font-size:.62rem;color:#3fb950;margin-left:3px">↑${diff}</span>`
-        : `<span style="font-size:.62rem;color:#f85149;margin-left:3px">↓${-diff}</span>`;
+      const sc = s._adj_score ?? score(s);
+      const scColor = sc >= 0.5 ? '#3fb950' : sc >= 0.2 ? '#e3b341' : '#c9d1d9';
 
-    // 回撤警示 badge：与 50日高点回撤超过 N×ATR 时显示
-    const ddBadge = (() => {
-      if (!s.max_high_50d || !s.last_close || !s.atr_50d) return '';
-      const dd  = (1 - s.max_high_50d_b * (1 + (s["涨跌幅"] ?? 0) / 100) / s.max_high_50d) * 100;
-      const atr = s.atr_50d;
-      if (dd > 3 * atr) return `<span title="回撤${dd.toFixed(1)}% > 3×ATR，趋势严重受损" style="font-size:.72rem;margin-left:4px">⚠️</span>`;
-      if (dd > 2 * atr) return `<span title="回撤${dd.toFixed(1)}% > 2×ATR，趋势受损" style="font-size:.65rem;color:#f85149;margin-left:4px">⚡⚡</span>`;
-      if (dd > 1 * atr) return `<span title="回撤${dd.toFixed(1)}% > 1×ATR，注意观察" style="font-size:.65rem;color:#e3b341;margin-left:4px">⚡</span>`;
-      return '';
-    })();
+      const pe = s.pe ?? 0;
+      const peStr   = pe > 0 ? pe.toFixed(1) : (pe < 0 ? '<span style="color:var(--muted)">亏损</span>' : '<span style="color:var(--muted)">—</span>');
+      const peColor = pe > 0 && pe < 30 ? '#3fb950' : pe >= 30 && pe < 60 ? '#e3b341' : pe >= 60 ? '#c9d1d9' : '';
 
-    const inWlT  = _wlStocks.some(w => w.code === s.代码);
-    const wlBtnT = `<button class="${inWlT ? 'btn-wl in-wl' : 'btn-wl'}" onclick="event.stopPropagation();wlToggle('${s.代码}','${s.名称.replace(/'/g,"&#39;")}')" title="${inWlT ? '移出自选' : '加入自选'}">${inWlT ? '−' : '+'}</button>`;
+      const ddBadge = (() => {
+        if (!s.max_high_50d || !s.last_close || !s.atr_50d) return '';
+        const dd  = (1 - s.max_high_50d_b * (1 + (s["涨跌幅"] ?? 0) / 100) / s.max_high_50d) * 100;
+        const atr = s.atr_50d;
+        if (dd > 3 * atr) return `<span title="回撤${dd.toFixed(1)}% > 3×ATR，趋势严重受损" style="font-size:.72rem;margin-left:4px">⚠️</span>`;
+        if (dd > 2 * atr) return `<span title="回撤${dd.toFixed(1)}% > 2×ATR，趋势受损" style="font-size:.65rem;color:#f85149;margin-left:4px">⚡⚡</span>`;
+        if (dd > 1 * atr) return `<span title="回撤${dd.toFixed(1)}% > 1×ATR，注意观察" style="font-size:.65rem;color:#e3b341;margin-left:4px">⚡</span>`;
+        return '';
+      })();
 
-    // Type badges
-    const typeBadge = s.is_etf
-      ? `<span style="font-size:.6rem;padding:1px 4px;border-radius:3px;background:rgba(88,166,255,.2);color:#58a6ff;margin-left:4px">ETF</span>`
-      : s.is_hk
-        ? `<span style="font-size:.6rem;padding:1px 4px;border-radius:3px;background:rgba(255,200,50,.2);color:#ffc832;margin-left:4px">港</span>`
-        : '';
+      const inWlT  = _wlStocks.some(w => w.code === s.代码);
+      const wlBtnT = `<button class="${inWlT ? 'btn-wl in-wl' : 'btn-wl'}" onclick="event.stopPropagation();wlToggle('${s.代码}','${s.名称.replace(/'/g,"&#39;")}')" title="${inWlT ? '移出自选' : '加入自选'}">${inWlT ? '−' : '+'}</button>`;
 
-    // Click action: open Eastmoney for ETF/HK; open internal modal for A-shares
-    const rowClick = `openModal('${s.代码}','${s.名称}')`;
-    const btnClick = `event.stopPropagation();openModal('${s.代码}','${s.名称}')`;
+      const typeBadge = s.is_etf
+        ? `<span style="font-size:.6rem;padding:1px 4px;border-radius:3px;background:rgba(88,166,255,.2);color:#58a6ff;margin-left:4px">ETF</span>`
+        : s.is_hk
+          ? `<span style="font-size:.6rem;padding:1px 4px;border-radius:3px;background:rgba(255,200,50,.2);color:#ffc832;margin-left:4px">港</span>`
+          : '';
 
-    const isWlPin = _wlCodeSet.has(s.代码);
-    const trStyle = isWlPin ? ' style="background:rgba(227,179,65,.06);border-left:2px solid #e3b341"' : '';
-    return `<tr onclick="${rowClick}"${trStyle}>
-      <td class="rank">${isWlPin ? '⭐' : s._new_rank}${rankBadge}</td>
-      <td class="code">${s.代码}${typeBadge}</td>
-      <td style="white-space:nowrap">${s.名称}${ddBadge}${wlBtnT}<span
-        onmouseenter="showCorrPanel('${s.代码}',this)"
-        onmouseleave="hideCorrPanel()"
-        onclick="event.stopPropagation()"
-        style="display:inline-block;width:9px;height:9px;border-radius:2px;
-               background:rgba(88,166,255,.35);margin-left:6px;cursor:help;
-               vertical-align:middle;flex-shrink:0"></span></td>
-      <td><span class="mktcap">${s.市值亿.toFixed(0)}</span></td>
-      <td style="color:${slColor};font-weight:700" class="trend-score">${slSign}${sl.toFixed(2)}%</td>
-      <td style="color:${r2Color}" class="trend-score">${r2.toFixed(1)}%</td>
-      <td style="color:${scColor};font-weight:600" class="trend-score">${sc.toFixed(2)}</td>
-      <td style="color:${peColor}">${peStr}</td>
-      ${(() => {
-        if (s.ret7w == null) return '<td style="color:var(--muted)">—</td>';
-        const g = s.ret7w;
-        const gc = g >= 0 ? '#3fb950' : '#f85149';
-        return `<td style="color:${gc};font-weight:600">${g >= 0 ? '+' : ''}${g.toFixed(1)}%</td>`;
-      })()}
-      ${(() => {
-        if (s.ret20w == null) return '<td style="color:var(--muted)">—</td>';
-        const g = s.ret20w;
-        const gc = g >= 0 ? '#3fb950' : '#f85149';
-        return `<td style="color:${gc};font-weight:600">${g >= 0 ? '+' : ''}${g.toFixed(1)}%</td>`;
-      })()}
-      <td style="font-variant-numeric:tabular-nums">${(() => {
-        if (!s.max_high_50d || !s.last_close) return '<span style="color:var(--muted)">—</span>';
-        const dd = Math.max(0, (1 - s.max_high_50d_b * (1 + (s["涨跌幅"] ?? 0) / 100) / s.max_high_50d) * 100);
-        const c = dd <= 2 ? '#3fb950' : dd <= 5 ? '#e3b341' : '#f85149';
-        return `<span style="color:${c}">${dd === 0 ? '0.0%' : '-' + dd.toFixed(1) + '%'}</span>`;
-      })()}</td>
-      <td style="font-variant-numeric:tabular-nums">${
-        s.atr_50d > 0
-          ? `<span style="color:#c9d1d9">${s.atr_50d.toFixed(2)}%</span>`
-          : `<span style="color:var(--muted)">—</span>`
-      }</td>
-      ${(() => {
-        if (s.pct7w == null) return `<td style="color:var(--muted);font-size:.72rem">${_closes52wFetching || !_closes52wCache.has(s.代码) ? '…' : '—'}</td>`;
-        const p = s.pct7w;
-        const c = p >= 80 ? '#f85149' : p >= 60 ? '#e3b341' : p >= 40 ? '#3fb950' : '#c9d1d9';
-        return `<td style="color:${c};font-weight:600">${p.toFixed(0)}%</td>`;
-      })()}
-      ${(() => {
-        if (s.pct20w == null) return `<td style="color:var(--muted);font-size:.72rem">${_closes52wFetching || !_closes52wCache.has(s.代码) ? '…' : '—'}</td>`;
-        const p = s.pct20w;
-        const c = p >= 80 ? '#f85149' : p >= 60 ? '#e3b341' : p >= 40 ? '#3fb950' : '#c9d1d9';
-        return `<td style="color:${c};font-weight:600">${p.toFixed(0)}%</td>`;
-      })()}
-      ${(() => {
-        if (s['涨跌幅'] == null) return '<td style="color:var(--muted)">—</td>';
-        const g = s['涨跌幅'];
-        const gc = g >= 0 ? '#3fb950' : '#f85149';
-        return `<td style="color:${gc};font-weight:600">${g >= 0 ? '+' : ''}${g.toFixed(2)}%</td>`;
-      })()}
-      <td style="padding:6px 12px">${makeSpark(s.trend_closes, sl)}</td>
-      <td style="padding:4px 8px">${
-        (s._penalty_tags && s._penalty_tags.length)
-          ? s._penalty_tags.map(t =>
-              t.title
-                ? `<span onmouseenter="showTagTip(this,'${t.title.replace(/'/g,'&#39;')}')"
-                         onmouseleave="hideCorrPanel()"
-                         onclick="event.stopPropagation()"
-                         style="font-size:.62rem;padding:1px 5px;border-radius:3px;margin-right:3px;
-                                background:${t.color}22;color:${t.color};white-space:nowrap;cursor:help">${t.label}</span>`
-                : `<span style="font-size:.62rem;padding:1px 5px;border-radius:3px;margin-right:3px;
-                                background:${t.color}22;color:${t.color};white-space:nowrap">${t.label}</span>`
-            ).join('')
-          : '<span style="color:var(--muted);font-size:.72rem">—</span>'
-      }</td>
-      <td style="font-size:.78rem;color:var(--muted)">${s.industry_board || '—'}</td>
-      <td><button class="btn-analyze" onclick="${btnClick}">图表</button></td>
-    </tr>`;
-  }).join('');
+      const rowClick = `openModal('${s.代码}','${s.名称}')`;
+      const btnClick = `event.stopPropagation();openModal('${s.代码}','${s.名称}')`;
+
+      const isWlPin = _wlCodeSet.has(s.代码);
+      const trStyle = isWlPin ? ' style="background:rgba(227,179,65,.06);border-left:2px solid #e3b341"' : '';
+      _htmlParts.push(`<tr onclick="${rowClick}"${trStyle}>
+        <td class="rank">${isWlPin ? '⭐' : _rank}</td>
+        <td class="code">${s.代码}${typeBadge}</td>
+        <td style="white-space:nowrap">${s.名称}${ddBadge}${wlBtnT}<span
+          onmouseenter="showCorrPanel('${s.代码}',this)"
+          onmouseleave="hideCorrPanel()"
+          onclick="event.stopPropagation()"
+          style="display:inline-block;width:9px;height:9px;border-radius:2px;
+                 background:rgba(88,166,255,.35);margin-left:6px;cursor:help;
+                 vertical-align:middle;flex-shrink:0"></span></td>
+        <td><span class="mktcap">${s.市值亿.toFixed(0)}</span></td>
+        <td style="color:${slColor};font-weight:700" class="trend-score">${slSign}${sl.toFixed(2)}%</td>
+        <td style="color:${sigColor}" class="trend-score">${sigRes.toFixed(1)}%</td>
+        <td style="color:${tr2Color}" class="trend-score">${tr2 != null ? tr2.toFixed(1)+'%' : '—'}</td>
+        <td style="color:${scColor};font-weight:600" class="trend-score">${sc.toFixed(2)}</td>
+        <td style="color:${peColor}">${peStr}</td>
+        ${(() => {
+          if (s.ret7w == null) return '<td style="color:var(--muted)">—</td>';
+          const g = s.ret7w;
+          const gc = g >= 0 ? '#3fb950' : '#f85149';
+          return `<td style="color:${gc};font-weight:600">${g >= 0 ? '+' : ''}${g.toFixed(1)}%</td>`;
+        })()}
+        ${(() => {
+          if (s.ret20w == null) return '<td style="color:var(--muted)">—</td>';
+          const g = s.ret20w;
+          const gc = g >= 0 ? '#3fb950' : '#f85149';
+          return `<td style="color:${gc};font-weight:600">${g >= 0 ? '+' : ''}${g.toFixed(1)}%</td>`;
+        })()}
+        <td style="font-variant-numeric:tabular-nums">${(() => {
+          if (!s.max_high_50d || !s.last_close) return '<span style="color:var(--muted)">—</span>';
+          const dd = Math.max(0, (1 - s.max_high_50d_b * (1 + (s["涨跌幅"] ?? 0) / 100) / s.max_high_50d) * 100);
+          const c = dd <= 2 ? '#3fb950' : dd <= 5 ? '#e3b341' : '#f85149';
+          return `<span style="color:${c}">${dd === 0 ? '0.0%' : '-' + dd.toFixed(1) + '%'}</span>`;
+        })()}</td>
+        <td style="font-variant-numeric:tabular-nums">${
+          s.atr_50d > 0
+            ? `<span style="color:#c9d1d9">${s.atr_50d.toFixed(2)}%</span>`
+            : `<span style="color:var(--muted)">—</span>`
+        }</td>
+        ${(() => {
+          if (s.pct7w == null) return `<td style="color:var(--muted);font-size:.72rem">${_closes52wFetching || !_closes52wCache.has(s.代码) ? '…' : '—'}</td>`;
+          const p = s.pct7w;
+          const c = p >= 80 ? '#f85149' : p >= 60 ? '#e3b341' : p >= 40 ? '#3fb950' : '#c9d1d9';
+          return `<td style="color:${c};font-weight:600">${p.toFixed(0)}%</td>`;
+        })()}
+        ${(() => {
+          if (s.pct20w == null) return `<td style="color:var(--muted);font-size:.72rem">${_closes52wFetching || !_closes52wCache.has(s.代码) ? '…' : '—'}</td>`;
+          const p = s.pct20w;
+          const c = p >= 80 ? '#f85149' : p >= 60 ? '#e3b341' : p >= 40 ? '#3fb950' : '#c9d1d9';
+          return `<td style="color:${c};font-weight:600">${p.toFixed(0)}%</td>`;
+        })()}
+        ${(() => {
+          if (s['涨跌幅'] == null) return '<td style="color:var(--muted)">—</td>';
+          const g = s['涨跌幅'];
+          const gc = g >= 0 ? '#3fb950' : '#f85149';
+          return `<td style="color:${gc};font-weight:600">${g >= 0 ? '+' : ''}${g.toFixed(2)}%</td>`;
+        })()}
+        <td style="padding:6px 12px">${makeSpark(s.trend_closes, sl)}</td>
+        <td style="padding:4px 8px">${
+          (s._penalty_tags && s._penalty_tags.length)
+            ? s._penalty_tags.map(t =>
+                t.title
+                  ? `<span onmouseenter="showTagTip(this,'${t.title.replace(/'/g,'&#39;')}')"
+                           onmouseleave="hideCorrPanel()"
+                           onclick="event.stopPropagation()"
+                           style="font-size:.62rem;padding:1px 5px;border-radius:3px;margin-right:3px;
+                                  background:${t.color}22;color:${t.color};white-space:nowrap;cursor:help">${t.label}</span>`
+                  : `<span style="font-size:.62rem;padding:1px 5px;border-radius:3px;margin-right:3px;
+                                  background:${t.color}22;color:${t.color};white-space:nowrap">${t.label}</span>`
+              ).join('')
+            : '<span style="color:var(--muted);font-size:.72rem">—</span>'
+        }</td>
+        <td style="font-size:.78rem;color:var(--muted)">${s.industry_board || '—'}</td>
+        <td><button class="btn-analyze" onclick="${btnClick}">图表</button></td>
+      </tr>`);
+    });
+  }
+  document.getElementById('trendTbody').innerHTML = _htmlParts.join('');
 
   // 拉 52w 数据用于走势图 / 集中度相关性（不触发重新筛选，只补全显示）
   const needFetch52 = rows.filter(s => !_closes52wCache.has(s.代码));
@@ -4987,7 +4928,7 @@ async function applyTrendFilter() {
 
 // ── sort handler ─────────────────────────────────────────────────────────────
 function setTrendSort(col) {
-  const keyMap = { slope:'slope', r2:'r2', score:'score', mkt:'mkt', pe:'pe', gain:'gain', ret20:'ret20', drawdown:'drawdown', atr:'atr', pct7w:'pct7w', pct20w:'pct20w', chgToday:'chgToday' };
+  const keyMap = { slope:'slope', r2:'r2', tr2:'tr2', score:'score', mkt:'mkt', pe:'pe', gain:'gain', ret20:'ret20', drawdown:'drawdown', atr:'atr', pct7w:'pct7w', pct20w:'pct20w', chgToday:'chgToday' };
   const k = keyMap[col];
   if (!k) return;
   if (trendSortKey === k) {
@@ -5005,7 +4946,7 @@ function clearTrendFilters() {
   document.getElementById('tFGainMax').value     = '4';
   document.getElementById('tFR2').value         = '5';
   document.getElementById('tFExcludeLoss').checked    = true;
-  document.getElementById('tFExcludeReverse').checked  = true;
+  document.getElementById('tFExcludeReverse').checked  = false;
   document.getElementById('tFPenalty20w').checked      = true;
   document.getElementById('tExcludeBank').checked      = false;
   document.getElementById('tExcludeCyclical').checked  = false;
@@ -5034,7 +4975,7 @@ function startTrendScan(force = false) {
     trendAllResults = [];
     _closes52wCache.clear();   // 清空旧 52w 缓存，避免过期 null 值过滤掉有效股票
     document.getElementById('trendTbody').innerHTML =
-      `<tr><td colspan="14" style="text-align:center;padding:30px;color:var(--muted)">
+      `<tr><td colspan="20" style="text-align:center;padding:30px;color:var(--muted)">
         <div class="spin" style="width:20px;height:20px;border-width:2px;margin:auto"></div>
       </td></tr>`;
   }
