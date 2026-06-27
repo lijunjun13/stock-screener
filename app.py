@@ -2113,7 +2113,7 @@ def _fetch_us_stocks() -> list[dict]:
         })
 
     stocks.sort(key=lambda x: -x["市值亿"])
-    if stocks:
+    if len(stocks) >= 30:  # only cache when Wikipedia fetch succeeded (supplement alone gives ~22)
         _set(cache_key, stocks)
     return stocks
 
