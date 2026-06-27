@@ -2147,7 +2147,7 @@ def _us_hfq_k_cached(ticker: str) -> float:
         return float(v)
     try:
         import yfinance as yf
-        raw = yf.Ticker(ticker).history(period="10y", auto_adjust=False, actions=True)
+        raw = yf.Ticker(ticker).history(period="10y", auto_adjust=False, actions=True, timeout=10)
         K   = _us_hfq_k(raw) if not raw.empty else 1.0
     except Exception:
         K = 1.0
@@ -2442,7 +2442,7 @@ def _fetch_us_weekly_closes_scan(ticker: str, n: int = 22, price_type: str = "cl
     try:
         import yfinance as yf
         raw = yf.Ticker(ticker).history(period="2y", interval="1wk",
-                                         auto_adjust=False, actions=True)
+                                         auto_adjust=False, actions=True, timeout=10)
         if raw.empty:
             return []
         K = _us_hfq_k_cached(ticker)
@@ -2462,7 +2462,7 @@ def _fetch_us_recent_highs_scan(ticker: str):
         import yfinance as yf
         t   = yf.Ticker(ticker)
         K   = _us_hfq_k_cached(ticker)
-        raw = t.history(period="3mo", interval="1d", auto_adjust=False, actions=False)
+        raw = t.history(period="3mo", interval="1d", auto_adjust=False, actions=False, timeout=10)
         if raw.empty or len(raw) < 5:
             return 0.0, 0.0, 0.0, 0.0, None
         closes   = [float(c) * K for c in raw["Adj Close"]]
