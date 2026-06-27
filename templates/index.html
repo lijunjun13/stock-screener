@@ -4567,8 +4567,7 @@ function renderTrendResults() {
     if (_activeMarket === 'hk' && (!s.is_hk || s.is_us)) return false;
     if (_activeMarket === 'us' && !s.is_us) return false;
     if (_closes52wCache.get(s.代码)?.closes_52w === false) return false;
-    if (s.trend_slope <= 0 || s.trend_slope >= 5.0) return false;
-    if (s.ret20w != null && (s.ret20w < 5 || s.ret20w > 50)) return false;
+    if (s.trend_slope <= 0) return false;
     if (!isNaN(fSlopeMin) && fSlopeMin > 0 && s.trend_slope < fSlopeMin) return false;
     if (!isNaN(fGainMax) && s.atr_50d > 0) {
       if (s.trend_slope > fGainMax * s.atr_50d) return false;
