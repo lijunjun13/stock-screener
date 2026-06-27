@@ -4587,7 +4587,7 @@ function renderTrendResults() {
     if (document.getElementById('tFExcludeReverse').checked) {
       if (s.max_high_50d > 0 && s.last_close > 0 && s.atr_50d > 0) {
         const dd = (1 - s.max_high_50d_b * (1 + (s["涨跌幅"] ?? 0) / 100) / s.max_high_50d) * 100;
-        if (dd > 8 || dd > 3 * s.atr_50d) return false;
+        if (dd > 3 * s.atr_50d) return false;
       }
     }
     return true;
