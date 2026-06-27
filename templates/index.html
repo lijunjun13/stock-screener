@@ -781,7 +781,7 @@
       </div>
       <div class="filter-group">
         <label title="趋势回归残差标准差上限（%），越小说明走势越稳定；与斜率高低无关">σ_res ≤ (%)</label>
-        <input type="number" id="tFR2" placeholder="如 5" step="0.5" min="0" value="5">
+        <input type="number" id="tFR2" placeholder="如 10" step="0.5" min="0" value="10">
       </div>
       <div class="filter-group">
         <label title="斜率（%/周）不超过 N×ATR（ATR = 近50日日涨跌幅绝对值均值），过滤过热品种">斜率 ≤ N×ATR</label>
@@ -4942,7 +4942,7 @@ function setTrendSort(col) {
 function clearTrendFilters() {
   document.getElementById('tFSlopeMin').value    = '0';
   document.getElementById('tFGainMax').value     = '4';
-  document.getElementById('tFR2').value         = '5';
+  document.getElementById('tFR2').value         = '10';
   document.getElementById('tFExcludeLoss').checked    = true;
   document.getElementById('tFExcludeReverse').checked  = true;
   document.getElementById('tFPenalty20w').checked      = true;
