@@ -3765,7 +3765,6 @@ def trend_screened():
         except: return default
 
     slope_min    = _f("slope_min",    1.5)
-    slope_top    = _f("slope_top",    1.0)
     sigma_max    = _f("sigma_max",    6.0)
     slope_natr   = _f("slope_natr",   2.0)
     mkt_min      = _f("mkt_min",      500.0)
@@ -3773,11 +3772,6 @@ def trend_screened():
     excl_loss    = request.args.get("excl_loss",    "1") != "0"
     excl_reverse = request.args.get("excl_reverse", "1") != "0"
     penalty_20w  = request.args.get("penalty_20w",  "1") != "0"
-
-    # 斜率 top N% 截止值
-    slopes   = sorted(r.get("trend_slope", 0) for r in results)
-    cutoff_i = int(len(slopes) * (1 - slope_top / 100))
-    slope_max = slopes[max(0, cutoff_i)] if slopes else float("inf")
 
     # ── 过滤 ────────────────────────────────────────────────────────────────────
     def _pass(s):
@@ -3791,7 +3785,6 @@ def trend_screened():
         is_etf = s.get("is_etf", False)
 
         if sl < slope_min:                                         return False
-        if sl > slope_max:                                         return False
         if atr > 0 and sl > slope_natr * atr:                     return False
         if sig > sigma_max:                                        return False
         if not is_etf:
