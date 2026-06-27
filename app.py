@@ -2438,48 +2438,54 @@ _trend_lock = threading.Lock()
 
 
 def _fetch_us_weekly_closes_scan(ticker: str, n: int = 22, price_type: str = "close") -> list[float]:
-    """Return last n weekly 后复权 prices for US trend scan. Cached 2 h."""
-    try:
-        import yfinance as yf
-        raw = yf.Ticker(ticker).history(period="2y", interval="1wk",
-                                         auto_adjust=False, actions=True, timeout=10)
-        if raw.empty:
-            return []
-        K = _us_hfq_k_cached(ticker)
-        if price_type == "min_oc":
-            prices = [round(min(float(o), float(c)) * K, 4)
-                      for o, c in zip(raw["Open"], raw["Adj Close"])]
-        else:
-            prices = [round(float(c) * K, 4) for c in raw["Adj Close"]]
-        return prices[-n:]
-    except Exception:
-        return []
+    """Return last n weekly 后复权 prices for US trend scan. Retries up to 3 times on failure."""
+    import yfinance as yf, time
+    for attempt in range(3):
+        try:
+            raw = yf.Ticker(ticker).history(period="2y", interval="1wk",
+                                             auto_adjust=False, actions=True, timeout=10)
+            if raw.empty:
+                return []
+            K = _us_hfq_k_cached(ticker)
+            if price_type == "min_oc":
+                prices = [round(min(float(o), float(c)) * K, 4)
+                          for o, c in zip(raw["Open"], raw["Adj Close"])]
+            else:
+                prices = [round(float(c) * K, 4) for c in raw["Adj Close"]]
+            return prices[-n:]
+        except Exception:
+            if attempt < 2:
+                time.sleep(2)
+    return []
 
 
 def _fetch_us_recent_highs_scan(ticker: str):
-    """Return (max_h50, max_h50, last_close, atr_50d, chg_live) for a US ticker."""
-    try:
-        import yfinance as yf
-        t   = yf.Ticker(ticker)
-        K   = _us_hfq_k_cached(ticker)
-        raw = t.history(period="3mo", interval="1d", auto_adjust=False, actions=False, timeout=10)
-        if raw.empty or len(raw) < 5:
-            return 0.0, 0.0, 0.0, 0.0, None
-        closes   = [float(c) * K for c in raw["Adj Close"]]
-        max_h50  = max(closes[-50:]) if len(closes) >= 50 else max(closes)
-        last_c   = closes[-1]
-        rets     = [abs(closes[i] / closes[i-1] - 1) * 100 for i in range(1, len(closes))]
-        atr      = round(sum(rets[-50:]) / min(len(rets), 50), 2) if rets else 0.0
-        chg_live = None
+    """Return (max_h50, max_h50b, last_close, atr_50d, chg_live) for a US ticker. Retries up to 3 times."""
+    import yfinance as yf, time
+    for attempt in range(3):
         try:
-            fi       = t.fast_info
-            chg_live = round(float(fi.get("regularMarketChangePercent") or 0), 2)
+            t   = yf.Ticker(ticker)
+            K   = _us_hfq_k_cached(ticker)
+            raw = t.history(period="3mo", interval="1d", auto_adjust=False, actions=False, timeout=10)
+            if raw.empty or len(raw) < 5:
+                return 0.0, 0.0, 0.0, 0.0, None
+            closes   = [float(c) * K for c in raw["Adj Close"]]
+            max_h50  = max(closes[-50:]) if len(closes) >= 50 else max(closes)
+            last_c   = closes[-1]
+            rets     = [abs(closes[i] / closes[i-1] - 1) * 100 for i in range(1, len(closes))]
+            atr      = round(sum(rets[-50:]) / min(len(rets), 50), 2) if rets else 0.0
+            chg_live = None
+            try:
+                fi       = t.fast_info
+                chg_live = round(float(fi.get("regularMarketChangePercent") or 0), 2)
+            except Exception:
+                pass
+            last_c2 = closes[-1]
+            return (round(max_h50, 4), round(last_c2, 4), round(last_c2, 4), atr, chg_live)
         except Exception:
-            pass
-        last_c2 = closes[-1]  # 最新收盘，前端用它算回撤：(1 - last_c2*(1+chg%) / max_h50)
-        return (round(max_h50, 4), round(last_c2, 4), round(last_c2, 4), atr, chg_live)
-    except Exception:
-        return 0.0, 0.0, 0.0, 0.0, None
+            if attempt < 2:
+                time.sleep(2)
+    return 0.0, 0.0, 0.0, 0.0, None
 
 
 def _run_trend_scan(stock_list: list[dict], slope_type: str = "close") -> None:
