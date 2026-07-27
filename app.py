@@ -1920,7 +1920,7 @@ _US_SUPPLEMENT = [
 
 def _fetch_us_ticker_list() -> list[str]:
     """Get S&P 500 tickers from Wikipedia + supplement. Cached 7 days."""
-    cache_key = "us_ticker_list_v1"
+    cache_key = "us_ticker_list_v2"
     cached = _get(cache_key, ttl=86400 * 7)
     if cached:
         return cached
@@ -1936,6 +1936,11 @@ def _fetch_us_ticker_list() -> list[str]:
         tickers.update(sp500_tickers)
     except Exception as exc:
         import sys; print(f"[us_tickers] wiki S&P500: {exc}", file=sys.stderr)
+
+    # Wikipedia is occasionally unavailable. The translated-name map covers the
+    # large-cap universe and is a better fallback than returning supplements only.
+    if len(tickers) <= len(_US_SUPPLEMENT):
+        tickers.update(_US_CN_NAMES)
 
     result = sorted(tickers)
     if len(result) > 50:
