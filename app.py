@@ -3198,17 +3198,22 @@ def watchlist_get():
         return jsonify({"success": True, "stocks": []})
     tc_list = [it["tc_code"] for it in items]
     quotes: dict[str, dict] = {}
-    # A股/港股：腾讯实时行情
-    non_us = [tc for tc in tc_list if not tc.startswith("us")]
-    if non_us:
+    # 腾讯同时支持 A股、港股和美股。先获取全市场行情，使 Yahoo 在
+    # Render 环境被限流时，美股自选仍能正常展示。
+    if tc_list:
+        tencent_codes = {
+            tc.replace("-", ".") if tc.startswith("us") else tc: tc
+            for tc in tc_list
+        }
         try:
-            r = _sess.get(f"https://qt.gtimg.cn/q={','.join(non_us)}", timeout=6)
+            r = _sess.get(f"https://qt.gtimg.cn/q={','.join(tencent_codes)}", timeout=6)
             r.raise_for_status()
             for line in r.text.strip().split(";\n"):
                 if '="' not in line:
                     continue
                 var = line.split("=")[0].strip()
                 tc  = var[2:] if var.startswith("v_") else var
+                tc  = tencent_codes.get(tc, tc)
                 inner = line.split('="', 1)[1].rstrip('";')
                 fields = inner.split("~")
                 if len(fields) >= 5:
