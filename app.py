@@ -2435,6 +2435,8 @@ def _fetch_weekly_closes(tc_code: str, n: int = 12, price_type: str = "close") -
 
 
 # Trend scan state (independent of the main screener scan)
+MIN_TREND_R2 = 40.0
+
 _trend_scan: dict = {
     "running": False, "done": False, "idx": 0, "total": 0, "results": [],
     "slope_type": "close",
@@ -2518,6 +2520,9 @@ def _run_trend_scan(stock_list: list[dict], slope_type: str = "close") -> None:
             x = np.arange(n_pts, dtype=float)
             y = np.log(np.array(closes, dtype=float))
             slope, b_intercept, r2 = _ols(x, y)
+            trend_r2 = round(r2 * 100, 1)
+            if trend_r2 < MIN_TREND_R2:
+                return None
 
             y_pred    = slope * x + b_intercept
             sigma_res = round(float(np.std(y - y_pred)) * 100, 3)
@@ -2563,7 +2568,7 @@ def _run_trend_scan(stock_list: list[dict], slope_type: str = "close") -> None:
                 "is_us":         is_us,
                 "_tc":           tc,
                 "trend_slope":   round(slope * 100, 2),
-                "trend_r2":      round(r2 * 100, 1),
+                "trend_r2":      trend_r2,
                 "sigma_res":     sigma_res,
                 "trend_closes":  norm,
                 "industry_board": industry,
@@ -3787,6 +3792,7 @@ def trend_screened():
     # ── 过滤 ────────────────────────────────────────────────────────────────────
     def _pass(s):
         sl  = s.get("trend_slope", 0)
+        r2  = s.get("trend_r2", 0)
         sig = s.get("sigma_res", 999)
         mkt = s.get("市值亿", 0)
         pe  = s.get("pe", 0) or 0
@@ -3795,6 +3801,7 @@ def trend_screened():
         lc  = s.get("last_close", 0)
         is_etf = s.get("is_etf", False)
 
+        if r2 < MIN_TREND_R2:                                     return False
         if sl < slope_min:                                         return False
         if atr > 0 and sl > slope_natr * atr:                     return False
         if sig > sigma_max:                                        return False

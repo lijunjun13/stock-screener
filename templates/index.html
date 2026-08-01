@@ -4566,6 +4566,7 @@ function renderTrendResults() {
     if (_activeMarket === 'a'  &&  (s.is_hk || s.is_us)) return false;
     if (_activeMarket === 'hk' && (!s.is_hk || s.is_us)) return false;
     if (_activeMarket === 'us' && !s.is_us) return false;
+    if ((s.trend_r2 ?? 0) < 40) return false;
     if (_closes52wCache.get(s.代码)?.closes_52w === false) return false;
     if (s.trend_slope <= 0) return false;
     if (!isNaN(fSlopeMin) && fSlopeMin > 0 && s.trend_slope < fSlopeMin) return false;
@@ -4597,7 +4598,8 @@ function renderTrendResults() {
   const _marketOk = s =>
     !(_activeMarket === 'a'  &&  (s.is_hk || s.is_us)) &&
     !(_activeMarket === 'hk' && (!s.is_hk || s.is_us)) &&
-    !(_activeMarket === 'us' && !s.is_us);
+    !(_activeMarket === 'us' && !s.is_us) &&
+    (s.trend_r2 ?? 0) >= 40;
   const wlPinned = trendAllResults.filter(s => _wlCodeSet.has(s.代码) && _marketOk(s));
   // 普通筛选行（自选股如果通过 filter 也会再次出现在斜率桶中）
   let rows = trendAllResults.filter(s => _passFilter(s));
