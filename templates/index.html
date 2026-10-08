@@ -944,7 +944,10 @@ async function loadList() {
 
     const total = d.total;
     const sumMkt = allStocks.reduce((s, x) => s + x['市值亿'], 0);
-    _aStatsCache = { total, sumMkt, time: new Date().toLocaleTimeString('zh-CN') };
+    const listTime = d.stale
+      ? '历史快照 ' + new Date(d.as_of * 1000).toLocaleString('zh-CN')
+      : new Date().toLocaleTimeString('zh-CN');
+    _aStatsCache = { total, sumMkt, time: listTime };
     _refreshAStats();
 
     _aListLoading = false;

@@ -660,6 +660,60 @@ def _to_tencent_code(bs_code: str) -> str:
     return bs_code.replace(".", "")
 
 
+def _fetch_a_list_page(params: dict) -> dict:
+    errors = []
+    for host in ("push2delay.eastmoney.com", "push2.eastmoney.com",
+                 "82.push2.eastmoney.com"):
+        try:
+            response = _em_sess.get(
+                f"https://{host}/api/qt/clist/get", params=params, timeout=8)
+            response.raise_for_status()
+            payload = response.json()
+            data = payload.get("data") or {}
+            diff = data.get("diff")
+            if isinstance(diff, dict):
+                diff = list(diff.values())
+            if payload.get("rc", 0) != 0 or not isinstance(diff, list) or not diff:
+                raise ValueError("empty or invalid stock page")
+            return {**data, "diff": diff}
+        except Exception as exc:
+            errors.append(f"{host}: {type(exc).__name__}")
+    raise RuntimeError("A-share sources unavailable: " + "; ".join(errors))
+
+
+def _save_a_list_snapshot(stocks):
+    # Compress this dedicated snapshot: the full universe exceeds _set's 30 KB limit.
+    import base64
+    import zlib
+    entry = {"ts": time.time(), "data": stocks}
+    with _cache_lock:
+        _cache["a_stock_list_last_good"] = entry
+    if _redis:
+        try:
+            raw = base64.b64encode(zlib.compress(
+                json.dumps(entry, ensure_ascii=False).encode())).decode()
+            _redis.setex("a_stock_list_last_good", 86400 * 7, raw)
+        except Exception as exc:
+            app.logger.warning("A-share snapshot write failed: %s", type(exc).__name__)
+
+
+def _load_a_list_snapshot():
+    import base64
+    import zlib
+    with _cache_lock:
+        entry = _cache.get("a_stock_list_last_good")
+    if _redis:
+        try:
+            raw = _redis.get("a_stock_list_last_good")
+            if raw:
+                entry = json.loads(zlib.decompress(base64.b64decode(raw)))
+        except Exception as exc:
+            app.logger.warning("A-share snapshot read failed: %s", type(exc).__name__)
+    if entry and time.time() - entry["ts"] < 86400 * 7 and entry.get("data"):
+        return [{**s, "_stale_as_of": entry["ts"]} for s in entry["data"]]
+    return []
+
+
 def _fetch_a_stock_list(threshold_yi: float = 0.0) -> list[dict]:
     """Fetch A-share list (沪深主板 + 创业板) from Eastmoney push2 clist.
 
@@ -669,10 +723,9 @@ def _fetch_a_stock_list(threshold_yi: float = 0.0) -> list[dict]:
     """
     cache_key = "a_stock_list_v1"
     cached = _get(cache_key, ttl=86400)
-    if cached is not None:
+    if cached:
         return cached
 
-    EM_URL    = "https://push2delay.eastmoney.com/api/qt/clist/get"
     EM_PARAMS = {
         "po": "1", "np": "1",
         "ut": "bd1d9ddb04089700cf9c27f6f7426281",
@@ -720,38 +773,39 @@ def _fetch_a_stock_list(threshold_yi: float = 0.0) -> list[dict]:
         return out
 
     def _fetch_page(page_no: int) -> list[dict]:
-        try:
-            r = _em_sess.get(EM_URL, params={**EM_PARAMS, "pn": str(page_no), "pz": "100"},
-                             timeout=15)
-            diff = (r.json().get("data") or {}).get("diff") or []
-            return _parse_items(diff)
-        except Exception:
-            return []
+        return _fetch_a_list_page({**EM_PARAMS, "pn": str(page_no), "pz": "100"})["diff"]
 
     result: list[dict] = []
     try:
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
         # 第1页：获取总数
-        r0 = _em_sess.get(EM_URL, params={**EM_PARAMS, "pn": "1", "pz": "100"}, timeout=15)
-        data0 = r0.json().get("data") or {}
+        data0 = _fetch_a_list_page({**EM_PARAMS, "pn": "1", "pz": "100"})
         total = int(data0.get("total") or 0)
-        result.extend(_parse_items(data0.get("diff") or []))
+        items = list(data0["diff"])
+        page_size = len(items)
 
-        if total > 100:
-            remaining_pages = list(range(2, (total // 100) + 2))
+        if total > page_size:
+            remaining_pages = list(range(2, (total + page_size - 1) // page_size + 1))
             # 8 个并发，适当限速避免被封
-            with ThreadPoolExecutor(max_workers=8) as pool:
+            with ThreadPoolExecutor(max_workers=4) as pool:
                 futures = {pool.submit(_fetch_page, p): p for p in remaining_pages}
                 for fut in as_completed(futures):
-                    result.extend(fut.result())
+                    items.extend(fut.result())
+        if total <= 0 or len({s.get("f12") for s in items}) < total:
+            raise ValueError("incomplete A-share pagination")
+        result = _parse_items(items)
+        if not result:
+            raise ValueError("no valid A-share quotes")
 
-    except Exception:
-        pass
+    except Exception as exc:
+        app.logger.warning("A-share list fetch failed: %s", exc)
+        return _load_a_list_snapshot()
 
     result.sort(key=lambda x: x["市值亿"], reverse=True)
     if result:
         _set(cache_key, result)
+        _save_a_list_snapshot(result)
     return result
 
 
@@ -2699,7 +2753,7 @@ def get_stocks():
         from collections import defaultdict
         all_stocks = _fetch_a_stock_list()
         if not all_stocks:
-            return jsonify({"success": False, "error": "股票列表为空，请稍后重试"}), 503
+            return jsonify({"success": False, "error": "A股数据源暂时不可用，且无可用历史快照，请稍后重试"}), 503
 
         # 按申万二级行业分桶，每桶取市值 top 2
         buckets: dict[str, list] = defaultdict(list)
@@ -2719,7 +2773,11 @@ def get_stocks():
         for s in stocks:
             s["py"] = _py_initials(s.get("名称", ""))
         payload = {"success": True, "data": stocks, "total": len(stocks)}
-        _set("stock_list", payload)
+        stale_ts = all_stocks[0].get("_stale_as_of")
+        if stale_ts:
+            payload.update(stale=True, as_of=stale_ts)
+        else:
+            _set("stock_list", payload)
         return jsonify(payload)
     except Exception as exc:
         return jsonify({"success": False, "error": str(exc)}), 500
@@ -3595,6 +3653,8 @@ def _build_trend_stock_list(market: str = "a") -> dict:
         import math as _math2
         from collections import defaultdict as _dd
         all_s = _fetch_a_stock_list()
+        if not all_s:
+            raise RuntimeError("A股数据源暂时不可用，且无可用历史快照")
         sorted_all = sorted(all_s, key=lambda x: x["市值亿"], reverse=True)
         buckets: dict = _dd(list)
         for s in all_s:
@@ -3610,7 +3670,8 @@ def _build_trend_stock_list(market: str = "a") -> dict:
         for s in selected:
             s["py"] = _py_initials(s.get("名称", ""))
         main = {"success": True, "data": selected, "total": len(selected)}
-        _set("stock_list", main)
+        if not all_s[0].get("_stale_as_of"):
+            _set("stock_list", main)
     a_stocks = main["data"]
     a_codes = {s["代码"] for s in a_stocks}
     etfs    = [e for e in _MAJOR_ETFS if e["代码"] not in a_codes]
