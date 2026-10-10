@@ -1900,22 +1900,97 @@ _MAJOR_ETFS: list[dict] = [
 ]
 
 
+def _fetch_hk_stocks_fallback() -> list[dict]:
+    base = "https://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center."
+
+    def get_json(url, params):
+        for attempt in range(3):
+            try:
+                r = _sess.get(url, params=params, timeout=8)
+                r.raise_for_status()
+                return r.json()
+            except Exception:
+                if attempt == 2:
+                    raise
+                time.sleep(0.5 * (attempt + 1))
+
+    total = int(get_json(base + "getHKStockCount", {"node": "qbgg_hk"}))
+    if total <= 0:
+        raise ValueError("empty HK universe")
+    def page(number):
+        rows = get_json(base + "getHKStockData", {
+            "page": number, "num": 60, "sort": "symbol", "asc": 1,
+            "node": "qbgg_hk", "_s_r_a": "init",
+        })
+        if not isinstance(rows, list) or not rows:
+            raise ValueError("empty HK universe page")
+        return rows
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        rows = [s for batch in pool.map(page, range(1, (total + 59) // 60 + 1)) for s in batch]
+    unique = {s["symbol"]: s for s in rows}
+    if len(unique) < total:
+        raise ValueError("incomplete HK universe")
+    codes = [code for code, s in unique.items()
+             if code.isdigit() and len(code) == 5 and not code.startswith("08")
+             and float(s.get("volume") or 0) >= 100000]
+
+    def quotes(batch):
+        for attempt in range(3):
+            try:
+                r = _sess.get("https://qt.gtimg.cn/q=" + ",".join("hk" + c for c in batch), timeout=8)
+                r.raise_for_status()
+                result, seen = [], set()
+                for line in r.text.splitlines():
+                    if '="' not in line:
+                        continue
+                    f = line.split('="', 1)[1].rstrip('";').split("~")
+                    if len(f) < 76:
+                        continue
+                    code = f[2]
+                    seen.add(code)
+                    # Tencent HK quotes express field 45 in 100 million HKD.
+                    if f[63] != "GP" or f[75] != "HKD":
+                        continue
+                    cap, volume = float(f[45] or 0), float(f[6] or 0)
+                    if cap <= 0 or volume < 100000:
+                        continue
+                    result.append({
+                        "代码": code, "名称": f[1], "市值亿": round(cap, 1),
+                        "pe": float(f[39] or 0), "_tc": "hk" + code, "is_hk": True,
+                        "最新价": float(f[3] or 0), "涨跌幅": float(f[32] or 0),
+                        "industry_board": "", "_source": "sina+tencent",
+                    })
+                if set(batch) - seen:
+                    raise ValueError("incomplete Tencent HK quotes")
+                return result
+            except Exception:
+                if attempt == 2:
+                    raise
+                time.sleep(0.5 * (attempt + 1))
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        result = [s for batch in pool.map(quotes, [codes[i:i+50] for i in range(0, len(codes), 50)]) for s in batch]
+    if not result:
+        raise ValueError("no HK fallback quotes")
+    return sorted(result, key=lambda s: -s["市值亿"])
+
+
 def _fetch_hk_stocks() -> list[dict]:
     """Fetch HK main-board stocks from Eastmoney push2 clist.
 
     Market cap (f20) is returned in HKD (港元); we convert to 亿港元.
-    Liquidity filter: f5 (成交量, 手) ≥ 5000 (≈ 50 万港元/日 for a 10-HKD stock).
+    Liquidity filter: f5 (shares traded) >= 100,000.
     Cached 24 h.
     """
-    cache_key = "hk_stocks_v3"   # v3: + f100 industry field
+    cache_key = "hk_stocks_v4"   # Invalidate potentially incomplete v3 pagination.
     cached = _get(cache_key, ttl=86400)
-    if cached is not None:
+    if cached:
         return cached
 
     result: list[dict] = []
     try:
-        PAGE = 500
+        PAGE = 100
         page  = 1
+        seen = set()
         while True:
             r = _em_sess.get(
                 # push2delay works where push2 returns connection errors for HK
@@ -1932,8 +2007,16 @@ def _fetch_hk_stocks() -> list[dict]:
             )
             data = r.json().get("data") or {}
             diff = data.get("diff") or []
+            if isinstance(diff, dict):
+                diff = list(diff.values())
             if not diff:
-                break
+                raise ValueError("empty HK quote page")
+            before = len(seen)
+            seen.update(str(item.get("f12")) for item in diff)
+            if len(seen) == before:
+                raise ValueError("HK pagination made no progress")
+            if page == 1:
+                PAGE = len(diff)
 
             for item in diff:
                 code_raw = str(item.get("f12") or "").strip()
@@ -1982,12 +2065,19 @@ def _fetch_hk_stocks() -> list[dict]:
                 })
 
             total = data.get("total") or 0
-            if page * PAGE >= total:
+            if not total:
+                raise ValueError("invalid HK stock count")
+            if len(seen) >= total:
                 break
             page += 1
             time.sleep(0.3)
-    except Exception:
-        pass
+    except Exception as exc:
+        app.logger.warning("HK primary source failed: %s", exc)
+        try:
+            result = _fetch_hk_stocks_fallback()
+        except Exception as fallback_exc:
+            app.logger.warning("HK fallback failed: %s", fallback_exc)
+            return []
 
     if result:
         _set(cache_key, result)
@@ -2875,6 +2965,8 @@ def get_hk_stocks():
     """返回市值 ≥ 500亿港元的港股列表，附实时行情（价格、涨跌幅）。"""
     MIN_MKT = 500.0  # 亿港元
     stocks = [s for s in _fetch_hk_stocks() if s["市值亿"] >= MIN_MKT]
+    if not stocks:
+        return jsonify({"success": False, "error": "港股数据源暂时不可用，请稍后重试"}), 503
     stocks.sort(key=lambda s: -s["市值亿"])
 
     # 批量拉腾讯实时行情（价格 + 涨跌幅）
@@ -2900,7 +2992,7 @@ def get_hk_stocks():
 
     for s in stocks:
         q = quotes.get(s["_tc"], {})
-        s["最新价"] = q.get("最新价", 0)
+        s["最新价"] = q.get("最新价", s.get("最新价", 0))
         s["涨跌幅"] = q.get("涨跌幅", s.get("涨跌幅", 0))
         s["py"] = _py_initials(s.get("名称", ""))
 
