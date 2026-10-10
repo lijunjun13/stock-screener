@@ -714,6 +714,89 @@ def _load_a_list_snapshot():
     return []
 
 
+def _fetch_a_stock_list_sina() -> list[dict]:
+    """Independent quotes for the >=300 yi universe used by both list consumers."""
+    import math
+    stocks = {}
+    url = "https://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeData"
+    for page in range(1, 101):
+        for attempt in range(3):
+            try:
+                response = _sess.get(url, params={
+                    "page": page, "num": 80, "sort": "mktcap", "asc": 0,
+                    "node": "hs_a", "symbol": "", "_s_r_a": "page",
+                }, timeout=8)
+                response.raise_for_status()
+                rows = response.json()
+                if not isinstance(rows, list) or not rows:
+                    raise ValueError("empty Sina quote page")
+                caps = [float(row["mktcap"]) / 10000 for row in rows]
+                if not all(math.isfinite(cap) and cap >= 0 for cap in caps):
+                    raise ValueError("invalid Sina market cap")
+                if caps != sorted(caps, reverse=True):
+                    raise ValueError("unsorted Sina quotes")
+                break
+            except Exception:
+                if attempt == 2:
+                    raise
+                time.sleep(0.5 * (attempt + 1))
+        old_count = len(stocks)
+        for row, cap in zip(rows, caps):
+            code = str(row["code"])
+            if cap < 300 or not code.startswith(("00", "30", "60", "68")):
+                continue
+            stocks[code] = {
+                "代码": code, "名称": row["name"], "市值亿": round(cap, 1),
+                "最新价": float(row["trade"] or 0),
+                "涨跌幅": float(row["changepercent"] or 0),
+                "pe": float(row.get("per") or 0), "_tc": row["symbol"],
+                "_source": "sina",
+            }
+        if caps[-1] < 300:
+            break
+        if len(stocks) == old_count:
+            raise ValueError("Sina pagination made no progress")
+    else:
+        raise ValueError("Sina pagination exceeded limit")
+    if not stocks:
+        raise ValueError("no eligible Sina stocks")
+
+    # Use the same PUBLISHNAME classification as _fetch_industry_board, not Sina sectors.
+    codes = list(stocks)
+    def industries(batch):
+        quoted = ",".join(json.dumps(code) for code in batch)
+        found = {}
+        for page in range(1, 101):
+            r = _em_sess.get(_EM_CONSENSUS_URL, params={
+                "reportName": "RPT_LICO_FN_CPD",
+                "columns": "SECURITY_CODE,PUBLISHNAME",
+                "filter": f"(SECURITY_CODE in ({quoted}))",
+                "pageSize": 500, "pageNumber": page,
+                "sortColumns": "REPORTDATE", "sortTypes": "-1",
+                "source": "WEB", "client": "WEB",
+            }, timeout=8)
+            r.raise_for_status()
+            payload = r.json()
+            data = payload.get("result") or {}
+            if not payload.get("success") or not data.get("data"):
+                raise ValueError("industry lookup failed")
+            for row in data["data"]:
+                if row.get("PUBLISHNAME"):
+                    found.setdefault(row["SECURITY_CODE"], row["PUBLISHNAME"].replace("Ⅱ", ""))
+            if all(code in found for code in batch):
+                return found
+            if page >= int(data.get("pages") or 1):
+                break
+        raise ValueError("missing industry classification for Sina universe")
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        for mapping in pool.map(industries, [codes[i:i + 50] for i in range(0, len(codes), 50)]):
+            for code, industry in mapping.items():
+                if code in stocks:
+                    stocks[code]["行业"] = industry
+    return sorted(stocks.values(), key=lambda s: -s["市值亿"])
+
+
 def _fetch_a_stock_list(threshold_yi: float = 0.0) -> list[dict]:
     """Fetch A-share list (沪深主板 + 创业板) from Eastmoney push2 clist.
 
@@ -787,7 +870,7 @@ def _fetch_a_stock_list(threshold_yi: float = 0.0) -> list[dict]:
 
         if total > page_size:
             remaining_pages = list(range(2, (total + page_size - 1) // page_size + 1))
-            # 8 个并发，适当限速避免被封
+            # Limit concurrent requests to reduce upstream throttling.
             with ThreadPoolExecutor(max_workers=4) as pool:
                 futures = {pool.submit(_fetch_page, p): p for p in remaining_pages}
                 for fut in as_completed(futures):
@@ -800,7 +883,11 @@ def _fetch_a_stock_list(threshold_yi: float = 0.0) -> list[dict]:
 
     except Exception as exc:
         app.logger.warning("A-share list fetch failed: %s", exc)
-        return _load_a_list_snapshot()
+        try:
+            result = _fetch_a_stock_list_sina()
+        except Exception as fallback_exc:
+            app.logger.warning("Sina fallback failed: %s", fallback_exc)
+            return _load_a_list_snapshot()
 
     result.sort(key=lambda x: x["市值亿"], reverse=True)
     if result:
