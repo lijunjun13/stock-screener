@@ -1632,7 +1632,7 @@ def _compute_regression_payload(tc_code: str, code: str) -> dict | None:
     """Fetch kline + compute both regressions. Returns and caches the full payload."""
     cache_key = f"hist_v4_{code}"
     cached = _get(cache_key, ttl=86400)
-    if cached and cached.get("success"):
+    if cached and cached.get("success") and "stats_6m" in cached:
         return cached
 
     _is_us_code  = tc_code.startswith("us") and not tc_code[2:].isdigit()
@@ -1685,6 +1685,19 @@ def _compute_regression_payload(tc_code: str, code: str) -> dict | None:
     reg_3y           = np.exp(s3 * x_all + b3).tolist()
     annual_growth_3  = (np.exp(s3 * 252) - 1.0) * 100
 
+    # Six calendar months ending at the latest available trading day.
+    import calendar
+    end_date = datetime.strptime(dates[-1], "%Y-%m-%d")
+    month_index = end_date.year * 12 + end_date.month - 1 - 6
+    year, month = divmod(month_index, 12)
+    month += 1
+    boundary_6m = end_date.replace(year=year, month=month,
+        day=min(end_date.day, calendar.monthrange(year, month)[1])).strftime("%Y-%m-%d")
+    split_6m_idx = next(i for i, d in enumerate(dates) if d >= boundary_6m)
+    x_6m, ly_6m = x_all[split_6m_idx:], log_y[split_6m_idx:]
+    s6, b6, r2_6 = _ols(x_6m, ly_6m)
+    reg_6m = [None] * split_6m_idx + np.exp(s6 * x_6m + b6).round(4).tolist()
+
     # ── 止盈止损通道（5年 & 3年 残差分布）──────────────────────────────────────
     def _band_stats(s, b, x_w, ly_w, x_all_, arr_, cur_p):
         res   = ly_w - (s * x_w + b)
@@ -1734,6 +1747,8 @@ def _compute_regression_payload(tc_code: str, code: str) -> dict | None:
         s5, b5, x_5y,  ly_5y,  x_all, arr[split_idx:],    cur_price)
     lower_band_3y, upper_band_3y, band_stats_3 = _band_stats(
         s3, b3, x_3y,  ly_3y,  x_all, arr[split_3y_idx:], cur_price)
+    lower_6m, upper_6m, band_stats_6 = _band_stats(
+        s6, b6, x_6m, ly_6m, x_6m, arr[split_6m_idx:], cur_price)
 
     payload = {
         "success":        True,
@@ -1747,6 +1762,19 @@ def _compute_regression_payload(tc_code: str, code: str) -> dict | None:
         "reg_10y":        [round(v, 4) for v in reg_10y],
         "reg_5y":         [round(v, 4) for v in reg_5y],
         "reg_3y":         [round(v, 4) for v in reg_3y],
+        "reg_6m":         reg_6m,
+        "lower_band_6m":  [None] * split_6m_idx + lower_6m.round(4).tolist(),
+        "upper_band_6m":  [None] * split_6m_idx + upper_6m.round(4).tolist(),
+        "split_6m_date":  boundary_6m,
+        "split_6m_idx":   split_6m_idx,
+        "stats_6m": {
+            "annual_growth": round(float(np.expm1(s6 * 252)) * 100, 2),
+            "r_squared": round(r2_6, 4),
+            "total_days": N - split_6m_idx,
+            "start_price": float(arr[split_6m_idx]),
+            "end_price": cur_price,
+        },
+        "band_stats_6m": band_stats_6,
         "lower_band":     [round(v, 4) for v in lower_band.tolist()],
         "upper_band":     [round(v, 4) for v in upper_band.tolist()],
         "lower_band_3y":  [round(v, 4) for v in lower_band_3y.tolist()],

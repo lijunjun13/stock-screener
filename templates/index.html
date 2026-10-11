@@ -381,7 +381,7 @@
   .trend-score { font-variant-numeric: tabular-nums; }
 
   /* ── year toggle chips ── */
-  .yr-chips { display: flex; gap: 5px; padding: 0 0 8px; align-items: center; }
+  .yr-chips { display: flex; flex-wrap: wrap; gap: 5px; padding: 0 0 8px; align-items: center; }
   .yr-chip {
     background: transparent; color: var(--muted);
     border: 1px solid var(--border); border-radius: 4px;
@@ -622,8 +622,9 @@
         <div class="chart-area">
           <div class="yr-chips" id="yrChips">
             <span style="font-size:.73rem;color:var(--muted);margin-right:2px">回归窗口：</span>
-            <button class="yr-chip active" data-yr="10y" onclick="toggleYr(this,'10y')"><span class="yr-dot" style="background:#f78166"></span>10年</button>
-            <button class="yr-chip active" data-yr="5y"  onclick="toggleYr(this,'5y')"><span class="yr-dot" style="background:#3fb950"></span>5年</button>
+            <button class="yr-chip active" data-yr="6m" onclick="toggleYr(this,'6m')"><span class="yr-dot" style="background:#56d4dd"></span>半年</button>
+            <button class="yr-chip" data-yr="10y" onclick="toggleYr(this,'10y')"><span class="yr-dot" style="background:#f78166"></span>10年</button>
+            <button class="yr-chip" data-yr="5y"  onclick="toggleYr(this,'5y')"><span class="yr-dot" style="background:#3fb950"></span>5年</button>
             <button class="yr-chip"        data-yr="3y"  onclick="toggleYr(this,'3y')"><span class="yr-dot" style="background:#e3b341"></span>3年</button>
             <button id="btnPhaseAnalyze"
                     onclick="runPhaseAnalysis(_currentCode)"
@@ -924,7 +925,7 @@ let _aListLoading = false;
 // ── year-window toggle state ──────────────────────────────────────────────────
 let _analysisGen      = 0;          // incremented on each new stock open; stale tasks abort
 let _phaseGen         = 0;          // same for chart phase analysis
-let _selectedYears    = new Set(['10y', '5y']);
+let _selectedYears    = new Set(['6m']);
 let _currentChartData = null;
 let _currentStockName = '';
 let _currentCode      = '';
@@ -1111,7 +1112,7 @@ async function _loadLongTerm(code, name) {
   document.getElementById('phaseHoverTip')?.remove();
   const _pb = document.getElementById('btnPhaseAnalyze');
   if (_pb) { _pb.disabled = false; _pb.style.opacity = '1'; _pb.textContent = '📊 阶段分析'; }
-  _selectedYears = new Set(['10y', '5y']);
+  _selectedYears = new Set(['6m']);
   document.querySelectorAll('.yr-chip').forEach(btn => {
     btn.classList.toggle('active', _selectedYears.has(btn.dataset.yr));
   });
@@ -1585,6 +1586,7 @@ async function _loadShortTerm(code) {
 function closeModal(ev) {
   if (!ev || ev.target === document.getElementById('modalOverlay')) {
     document.getElementById('modalOverlay').classList.remove('open');
+    if (_lwcLTResizeObserver) _lwcLTResizeObserver.disconnect();
     if (_lwcLTChart) { try { _lwcLTChart.remove(); } catch(_) {} _lwcLTChart = null; }
     _lwcLTPEChart = null;
     ['stIntradayDiv','stDailyDiv','stWeeklyDiv'].forEach(id => {
@@ -1597,6 +1599,7 @@ function closeModal(ev) {
 
 // ── chart ────────────────────────────────────────────────────────────────────
 let _lwcLTChart    = null; // 长期趋势图 价格面板 LWC 实例
+let _lwcLTResizeObserver = null;
 let _lwcLTPEChart  = null; // 长期趋势图 PE 子图 LWC 实例
 let _lwcLTLastDate  = null; // 价格数据最后一个交易日 "YYYY-MM-DD"
 let _lwcLTFirstDate = null; // 价格数据第一个交易日 "YYYY-MM-DD"
@@ -1608,11 +1611,13 @@ function drawChart(d, name, code) {
   const sel10 = _selectedYears.has('10y');
   const sel5  = _selectedYears.has('5y');
   const sel3  = _selectedYears.has('3y') && has3y;
+  const sel6 = _selectedYears.has('6m') && !!d.reg_6m;
 
   // ── 销毁旧实例 ─────────────────────────────────────────────────────────────
   const divEl = document.getElementById('chartDiv');
   const _oldOverlay = document.getElementById('lwcPhaseOverlay');
   if (_oldOverlay) { if (_oldOverlay._unsubscribe) _oldOverlay._unsubscribe(); _oldOverlay.remove(); }
+  if (_lwcLTResizeObserver) _lwcLTResizeObserver.disconnect();
   if (_lwcLTChart) { try { _lwcLTChart.remove(); } catch(_) {} _lwcLTChart = null; }
   _lwcLTPEChart = null; // v5: PE 在同一 chart 实例里，随 _lwcLTChart 一起销毁
   divEl.innerHTML = '';
@@ -1646,6 +1651,7 @@ function drawChart(d, name, code) {
   const ro = new ResizeObserver(() => {
     priceChart.applyOptions({ width: divEl.clientWidth, height: divEl.clientHeight });
   });
+  _lwcLTResizeObserver = ro;
   ro.observe(divEl);
 
   // 工具函数
@@ -1698,6 +1704,11 @@ function drawChart(d, name, code) {
   if (sel10) _setD(reg10, d.dates, d.reg_10y);
   if (sel5)  _setD(reg5,  d.dates, d.reg_5y);
   if (sel3)  _setD(reg3,  d.dates, d.reg_3y);
+  if (sel6) {
+    _setD(_mkLine('#56d4dd', 2, LS.Solid), d.dates, d.reg_6m);
+    _setD(_mkLine('rgba(86,212,221,.5)', 1.2, LS.LargeDashed), d.dates, d.lower_band_6m);
+    _setD(_mkLine('rgba(86,212,221,.5)', 1.2, LS.LargeDashed), d.dates, d.upper_band_6m);
+  }
 
   // ── P10/P90 边界线 ──────────────────────────────────────────────────────
   const p10_5 = _mkLine('rgba(248,81,73,.55)',  1.5, LS.LargeDashed, { visible: !!(sel5 && d.lower_band) });
@@ -1743,6 +1754,11 @@ function drawChart(d, name, code) {
   }
 
   priceChart.timeScale().fitContent();
+  if (sel6 && _selectedYears.size === 1) {
+    priceChart.timeScale().setVisibleRange({
+      from: _d2lwc(d.dates[d.split_6m_idx]), to: _d2lwc(d.dates[d.dates.length - 1]),
+    });
+  }
 }
 
 // ── year window toggle ────────────────────────────────────────────────────────
@@ -2328,7 +2344,7 @@ function drawStats(s10, s5, bs, peData, code) {
   const bs3 = (peData && peData.band_stats_3y) || null;
 
   // Build ordered list of selected windows
-  const orderedYrs = ['10y', '5y', '3y'].filter(y => _selectedYears.has(y));
+  const orderedYrs = ['6m', '10y', '5y', '3y'].filter(y => _selectedYears.has(y));
   const ncols = Math.max(orderedYrs.length, 1);
   const gc    = Array(ncols).fill('1fr').join(' ');
 
@@ -2337,6 +2353,11 @@ function drawStats(s10, s5, bs, peData, code) {
   const labelOf = { '10y': '— 10年', '5y': '— 5年', '3y': '·· 3年' };
   const colorOf = { '10y': '#f78166', '5y': '#3fb950', '3y': '#e3b341' };
   const bgOf    = { '10y': 'rgba(247,129,102,.08)', '5y': 'rgba(63,185,80,.08)', '3y': 'rgba(227,179,65,.08)' };
+  statsOf['6m'] = peData?.stats_6m;
+  bsOf['6m'] = peData?.band_stats_6m;
+  labelOf['6m'] = '半年';
+  colorOf['6m'] = '#56d4dd';
+  bgOf['6m'] = 'rgba(86,212,221,.08)';
 
   // Responsive font sizes
   const vSz  = ncols > 2 ? '1rem'   : '1.2rem';
@@ -2380,7 +2401,7 @@ function drawStats(s10, s5, bs, peData, code) {
 
   // ── Band stats: one block per selected window that has band data ────────────
   const bandYrs  = orderedYrs.filter(y => bsOf[y]);
-  const bandTitleOf = { '5y': '5年', '3y': '3年' };
+  const bandTitleOf = { '6m': '半年', '5y': '5年', '3y': '3年' };
   let bandHtml = '';
   if (bandYrs.length > 0) {
     const blocks = bandYrs.map((y, idx) => {
@@ -2461,9 +2482,6 @@ function drawStats(s10, s5, bs, peData, code) {
 
     ${buildPeHtml(peData)}
 
-    <p class="note" style="margin-top:10px">
-      趋势线延伸至全图；绿色虚线 = 5年起点，黄色虚线 = 3年起点。
-    </p>
     <p class="note" style="margin-bottom:0">
       数据来源：腾讯行情 后复权 · BaoStock PE(TTM)
     </p>`;
