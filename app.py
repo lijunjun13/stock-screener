@@ -951,9 +951,11 @@ def _fetch_kline_range(tc_code: str, start: str, end: str) -> tuple[list[str], l
                 time.sleep(1)
         try:
             sd   = r.json()["data"][tc_code]
-            rows = sd.get("hfqday") or sd.get("qfqday") or sd.get("day") or []
+            rows = sd.get("hfqday") or []
+            if not rows and (sd.get("qfqday") or sd.get("day")):
+                raise ValueError("Tencent did not return hfq prices")
         except (KeyError, TypeError):
-            continue
+            raise ValueError("invalid Tencent historical response") from None
         for row in rows:
             d = row[0]
             if not dates or d > dates[-1]:
@@ -962,7 +964,93 @@ def _fetch_kline_range(tc_code: str, start: str, end: str) -> tuple[list[str], l
     return dates, closes
 
 
+def _fetch_kline_baostock(tc_code, start, end):
+    import subprocess
+    import sys
+    if tc_code[:2] not in ("sh", "sz"):
+        raise ValueError("BaoStock fallback only supports A-shares")
+    script = os.path.join(os.path.dirname(__file__), "scripts", "fetch_baostock_history.py")
+    result = subprocess.run([sys.executable, script, tc_code[:2] + "." + tc_code[2:],
+                             start, end], capture_output=True, text=True, timeout=35, check=True)
+    raw = next(line[len("HISTORY_JSON:"):] for line in result.stdout.splitlines()
+               if line.startswith("HISTORY_JSON:"))
+    prices = {}
+    for date, value in json.loads(raw):
+        datetime.strptime(date, "%Y-%m-%d")
+        close = float(value)
+        if not np.isfinite(close) or close <= 0 or not start <= date <= end:
+            raise ValueError("invalid BaoStock historical price")
+        prices[date] = close
+    if not prices:
+        raise ValueError("empty BaoStock historical prices")
+    dates = sorted(prices)
+    return dates, [prices[d] for d in dates]
+
+
 def _fetch_kline_hfq(tc_code: str, years: int = 10) -> tuple[list[str], list[float]]:
+    """Fall back for the entire interval so adjustment scales are never mixed."""
+    cache_key = f"kline_em_hfq_v1_{tc_code}_{years}"
+    cached = _get(cache_key, ttl=86400)
+    if cached:
+        return cached["dates"], cached["closes"]
+    try:
+        dates, closes = _fetch_kline_hfq_tencent(tc_code, years)
+        if not dates:
+            raise ValueError("empty Tencent historical prices")
+        return dates, closes
+    except Exception as exc:
+        app.logger.warning("Tencent history failed for %s: %s", tc_code, type(exc).__name__)
+
+    market = {"sh": "1", "sz": "0", "hk": "116"}.get(tc_code[:2])
+    if market is None:
+        raise ValueError("unsupported historical price market")
+    today = datetime.now()
+    params = {
+        "secid": f"{market}.{tc_code[2:]}", "klt": "101", "fqt": "2",
+        "beg": (today - timedelta(days=years * 365 + 10)).strftime("%Y%m%d"),
+        "end": today.strftime("%Y%m%d"), "lmt": "10000",
+        "fields1": "f1,f2,f3,f4,f5,f6", "fields2": "f51,f52,f53,f54,f55,f56",
+    }
+    for attempt in range(3):
+        try:
+            r = _em_sess.get("https://push2his.eastmoney.com/api/qt/stock/kline/get",
+                             params=params, timeout=10)
+            r.raise_for_status()
+            rows = (r.json().get("data") or {}).get("klines") or []
+            if not rows:
+                raise ValueError("empty Eastmoney historical prices")
+            prices = {}
+            for row in rows:
+                fields = row.split(",")
+                date = datetime.strptime(fields[0], "%Y-%m-%d").strftime("%Y-%m-%d")
+                close = float(fields[2])
+                if not np.isfinite(close) or close <= 0:
+                    raise ValueError("invalid adjusted price")
+                if params["beg"] <= date.replace("-", "") <= params["end"]:
+                    prices[date] = close
+            if not prices:
+                raise ValueError("no historical prices in requested interval")
+            dates = sorted(prices)
+            closes = [prices[d] for d in dates]
+            _set(cache_key, {"dates": dates, "closes": closes})
+            return dates, closes
+        except Exception:
+            if attempt == 2:
+                app.logger.warning("Eastmoney history fallback failed for %s", tc_code)
+                break
+            time.sleep(1)
+    try:
+        dates, closes = _fetch_kline_baostock(tc_code,
+            (today - timedelta(days=years * 365 + 10)).strftime("%Y-%m-%d"),
+            today.strftime("%Y-%m-%d"))
+        _set(cache_key, {"dates": dates, "closes": closes})
+        return dates, closes
+    except Exception as exc:
+        app.logger.warning("BaoStock history failed for %s: %s", tc_code, type(exc).__name__)
+        raise RuntimeError("历史行情数据源暂时不可用，请稍后重试") from None
+
+
+def _fetch_kline_hfq_tencent(tc_code: str, years: int = 10) -> tuple[list[str], list[float]]:
     """冷热分离缓存：历史段缓存50天，近期段缓存24小时。
 
     cutoff（历史段结束日期）存入历史段 payload，近期段始终从该 cutoff 开始拉取，
